@@ -1,0 +1,722 @@
+<div id="kotiki-preview" aria-label="Kotiki team — доска недели и приглашения">
+  <style>
+    #kotiki-preview { --kt-bg:light-dark(#faf7f3,#201d24); --kt-panel:light-dark(#ffffff,#2b2630); --kt-ink:light-dark(#302b36,#f7eff8); --kt-muted:light-dark(#716779,#bbb0c4); --kt-line:light-dark(#e8dfea,#4b4053); --kt-purple:light-dark(#75508c,#dac0ee); --kt-soft:light-dark(#eee5f4,#43324f); --kt-peach:light-dark(#fff0df,#443428); font:14px/1.5 system-ui,sans-serif; color:var(--kt-ink); color-scheme:light dark; }
+    #kotiki-preview { container-type:inline-size; }
+    #kotiki-preview * { box-sizing:border-box; }
+    #kotiki-preview button, #kotiki-preview input, #kotiki-preview textarea { font:inherit; }
+    #kotiki-preview button { color:inherit; cursor:inherit; }
+    #kotiki-preview .kt-app { background:var(--kt-bg); border:1px solid var(--kt-line); border-radius:24px; overflow:hidden; }
+    #kotiki-preview .kt-top { display:flex; align-items:center; gap:12px; padding:20px 24px; padding-right:100px; border-bottom:1px solid var(--kt-line); background:var(--kt-panel); }
+    #kotiki-preview .kt-cat { display:grid; place-items:center; width:44px; height:44px; flex:none; background:var(--kt-soft); color:var(--kt-purple); border-radius:16px; }
+    #kotiki-preview .kt-brand { font-size:20px; font-weight:650; letter-spacing:-.6px; }
+    #kotiki-preview .kt-muted { color:var(--kt-muted); font-size:12px; }
+    #kotiki-preview .kt-shell { display:grid; grid-template-columns:70px minmax(0,1fr); }
+    #kotiki-preview .kt-nav { display:flex; flex-direction:column; gap:9px; padding:18px 8px; border-right:1px solid var(--kt-line); background:var(--kt-panel); }
+    #kotiki-preview .kt-nav button { display:flex; flex-direction:column; align-items:center; gap:4px; min-height:57px; padding:8px 2px; border:0; border-radius:12px; background:transparent; font-size:10px; }
+    #kotiki-preview .kt-nav button[aria-pressed="true"] { background:var(--kt-soft); color:var(--kt-purple); }
+    #kotiki-preview i { display:inline-block; width:20px; height:20px; }
+    #kotiki-preview main { min-width:0; padding:22px; }
+    #kotiki-preview .kt-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:18px; }
+    #kotiki-preview h2 { margin:0; font-size:22px; font-weight:650; letter-spacing:-.5px; }
+    #kotiki-preview h3 { margin:0 0 10px; font-size:15px; font-weight:600; }
+    #kotiki-preview .kt-action { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:10px 14px; min-height:44px; border:1px solid var(--kt-line); border-radius:12px; background:var(--kt-panel); }
+    #kotiki-preview .kt-primary { background:var(--kt-purple); border-color:var(--kt-purple); color:var(--kt-bg); }
+    #kotiki-preview .kt-board-controls { display:none; }
+    #kotiki-preview .kt-week { display:none; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:18px; }
+    #kotiki-preview .kt-view-switch { display:flex; gap:4px; padding:4px; background:var(--kt-soft); border-radius:13px; margin-bottom:16px; }
+    #kotiki-preview .kt-view-switch button { flex:1; min-height:44px; padding:8px 10px; border:0; border-radius:10px; background:transparent; color:var(--kt-muted); }
+    #kotiki-preview .kt-view-switch button[aria-pressed="true"] { background:var(--kt-panel); color:var(--kt-ink); }
+    #kotiki-preview .kt-day { min-width:0; min-height:53px; padding:6px 2px; border:1px solid var(--kt-line); border-radius:12px; background:var(--kt-panel); }
+    #kotiki-preview .kt-day span { display:block; font-size:11px; color:var(--kt-muted); }
+    #kotiki-preview .kt-day strong { font-size:16px; font-weight:600; }
+    #kotiki-preview .kt-day[aria-pressed="true"] { background:var(--kt-soft); border-color:var(--kt-purple); }
+    #kotiki-preview .kt-columns { --kt-col-width:min(260px,calc(100% - 18px)); display:flex; gap:14px; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x mandatory; scrollbar-width:none; padding-bottom:12px; align-items:flex-start; }
+    #kotiki-preview .kt-columns::-webkit-scrollbar { display:none; }
+    #kotiki-preview .kt-columns::after { content:""; flex:0 0 max(0px,calc(100% - var(--kt-col-width) - 14px)); }
+    #kotiki-preview .kt-column { min-width:0; flex:0 0 var(--kt-col-width); scroll-snap-align:start; }
+    #kotiki-preview .kt-label { font-size:13px; font-weight:600; color:var(--kt-ink); margin-bottom:13px; min-height:24px; }
+    #kotiki-preview .kt-today-column .kt-label { color:var(--kt-purple); }
+    #kotiki-preview #kt-ribbon-position { --kt-scroll-thumb:48px; display:block; width:100%; padding:0; margin:0 0 16px; height:20px; border:0; border-radius:0; background:transparent; appearance:none; accent-color:var(--kt-purple); }
+    #kotiki-preview #kt-ribbon-position::-webkit-slider-runnable-track { height:4px; background:var(--kt-line); border-radius:4px; }
+    #kotiki-preview #kt-ribbon-position::-webkit-slider-thumb { appearance:none; height:4px; width:var(--kt-scroll-thumb); background:var(--kt-purple); border:0; border-radius:4px; }
+    #kotiki-preview #kt-ribbon-position::-moz-range-track { height:4px; background:var(--kt-line); border-radius:4px; }
+    #kotiki-preview #kt-ribbon-position::-moz-range-thumb { height:4px; width:var(--kt-scroll-thumb); background:var(--kt-purple); border:0; border-radius:4px; }
+    #kotiki-preview .kt-task { display:block; text-align:left; width:100%; padding:13px 10px; border:1px solid var(--kt-line); background:var(--kt-panel); border-radius:14px; margin-bottom:9px; overflow-wrap:anywhere; }
+    #kotiki-preview .kt-task strong { display:block; font-weight:600; margin:5px 0 9px; }
+    #kotiki-preview .kt-time { color:var(--kt-muted); font-size:11px; }
+    #kotiki-preview .kt-who { font-size:11px; color:var(--kt-purple); }
+    #kotiki-preview .kt-invited { border-style:dashed; border-color:var(--kt-purple); background:var(--kt-soft); }
+    #kotiki-preview .kt-busy { background:var(--kt-peach); }
+    #kotiki-preview .kt-empty { padding:12px 0; color:var(--kt-muted); font-size:12px; }
+    #kotiki-preview .kt-later { border-top:1px solid var(--kt-line); margin-top:8px; padding-top:14px; }
+    #kotiki-preview .kt-columns { overflow-y:hidden; }
+    #kotiki-preview .kt-access { display:inline-flex; align-items:center; justify-content:center; flex:none; gap:3px; min-width:32px; min-height:32px; padding:4px; border:0; border-radius:8px; background:transparent; color:var(--kt-purple); }
+    #kotiki-preview .kt-access:hover { background:var(--kt-soft); }
+    #kotiki-preview .kt-access i, #kotiki-preview .kt-access svg { width:19px; height:19px; flex:none; stroke-width:1.8; pointer-events:none; }
+    #kotiki-preview .kt-card-meta { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:3px; }
+    #kotiki-preview .kt-goal .kt-access { align-self:center; }
+    #kotiki-preview .kt-access .kt-shield-cat { display:grid; place-items:center; width:32px; height:32px; flex:0 0 32px; pointer-events:none; }
+    #kotiki-preview .kt-shield-cat .kt-shield-outline { grid-area:1 / 1; display:grid; place-items:center; width:32px; height:32px; }
+    #kotiki-preview .kt-shield-cat .kt-shield-face { grid-area:1 / 1; display:grid; place-items:center; width:12px; height:12px; z-index:1; }
+    #kotiki-preview .kt-access .kt-shield-cat .kt-shield-outline > * { display:block!important; width:32px!important; height:32px!important; min-width:32px!important; max-width:none!important; margin:0!important; transform:none!important; stroke-width:1.5; }
+    #kotiki-preview .kt-access .kt-shield-cat .kt-shield-face > * { display:block!important; width:12px!important; height:12px!important; min-width:12px!important; max-width:none!important; margin:0!important; transform:none!important; stroke-width:2; }
+    #kotiki-preview .kt-theme-pair { display:inline-flex; align-items:center; gap:0; padding-right:4px; border:1px solid var(--kt-line); border-radius:13px; background:var(--kt-panel); max-width:100%; }
+    #kotiki-preview .kt-theme-pair[data-selected="true"] { border-color:var(--kt-purple); background:var(--kt-soft); }
+    #kotiki-preview .kt-theme-pair .kt-theme { border:0; background:transparent; min-width:0; overflow-wrap:anywhere; padding-right:5px; }
+    #kotiki-preview .kt-list-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #kotiki-preview .kt-list-row .kt-list-button { min-width:0; border:0; padding:0; background:transparent; min-height:32px; }
+    #kotiki-preview .kt-list-row strong { margin:0; overflow-wrap:anywhere; }
+    @media (pointer:coarse) { #kotiki-preview .kt-access { min-width:44px; min-height:44px; } }
+    #kotiki-preview #kt-plan-group-access { margin-bottom:10px; }
+    #kotiki-preview #kt-editor-dialog { width:min(620px,calc(100% - 24px)); max-height:calc(100% - 32px); margin:auto; padding:0; border:1px solid var(--kt-line); border-radius:18px; color:var(--kt-ink); background:var(--kt-panel); overflow:auto; }
+    #kotiki-preview #kt-editor-dialog::backdrop { background:light-dark(#302b3666,#00000099); }
+    #kotiki-preview #kt-editor-dialog .kt-editor { margin:0; border:0; }
+    #kotiki-preview #kt-editor-dialog .kt-heading { align-items:center; }
+    #kotiki-preview #kt-editor-dialog h3 { margin:0; }
+    #kotiki-preview .kt-close { border:0; background:transparent; font-size:28px; padding:0; min-width:44px; }
+    #kotiki-preview input[readonly] { color:var(--kt-muted); }
+    #kotiki-preview .kt-later-items { display:flex; flex-wrap:wrap; gap:9px; }
+    #kotiki-preview .kt-chip { padding:8px 12px; border:1px solid var(--kt-line); border-radius:12px; background:var(--kt-panel); }
+    #kotiki-preview .kt-invite-panel { max-width:600px; margin:auto; }
+    #kotiki-preview .kt-letter { background:var(--kt-panel); padding:22px; border:1px solid var(--kt-line); border-radius:20px; }
+    #kotiki-preview .kt-letter h3 { font-size:21px; margin:12px 0; }
+    #kotiki-preview .kt-letter p { margin:12px 0; }
+    #kotiki-preview .kt-status { display:inline-flex; align-items:center; gap:6px; border-radius:9px; padding:5px 9px; background:var(--kt-soft); color:var(--kt-purple); font-size:12px; }
+    #kotiki-preview .kt-details { margin:18px 0; display:grid; gap:10px; }
+    #kotiki-preview .kt-detail { display:flex; align-items:center; gap:10px; }
+    #kotiki-preview .kt-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; }
+    #kotiki-preview .kt-form { display:grid; gap:12px; margin-top:18px; padding-top:18px; border-top:1px solid var(--kt-line); }
+    #kotiki-preview label { display:grid; gap:5px; font-size:12px; }
+    #kotiki-preview input,#kotiki-preview textarea { min-width:0; width:100%; padding:11px; border:1px solid var(--kt-line); border-radius:10px; background:var(--kt-bg); color:var(--kt-ink); font-size:16px; }
+    #kotiki-preview .kt-note { margin-top:14px; font-size:12px; color:var(--kt-muted); }
+    #kotiki-preview .kt-rows { display:grid; gap:12px; max-width:600px; }
+    #kotiki-preview .kt-row { padding:16px; background:var(--kt-panel); border:1px solid var(--kt-line); border-radius:15px; }
+    #kotiki-preview .kt-row strong { display:block; margin-bottom:5px; }
+    #kotiki-preview .kt-period { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:18px; }
+    #kotiki-preview .kt-period-nav { display:flex; align-items:center; gap:8px; min-width:0; }
+    #kotiki-preview .kt-period-title { text-align:center; min-width:140px; font-weight:500; }
+    #kotiki-preview .kt-arrow { width:44px; padding:0; flex:none; border:0; background:transparent; border-radius:0; font-size:32px; font-weight:500; color:var(--kt-purple); }
+    #kotiki-preview .kt-day-items { display:grid; align-content:start; gap:9px; min-width:0; }
+    #kotiki-preview .kt-day-items .kt-task { margin:0; }
+    #kotiki-preview .kt-day-add { min-height:40px; width:100%; border:1px dashed var(--kt-line); border-radius:10px; background:transparent; color:var(--kt-muted); }
+    #kotiki-preview .kt-editor { padding:20px; margin-bottom:22px; background:var(--kt-panel); border:1px solid var(--kt-line); border-radius:18px; }
+    #kotiki-preview .kt-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+    #kotiki-preview .kt-wide { grid-column:1/-1; }
+    #kotiki-preview select { font:inherit; min-width:0; width:100%; padding:11px; border:1px solid var(--kt-line); border-radius:10px; background:var(--kt-bg); color:var(--kt-ink); font-size:16px; }
+    #kotiki-preview .kt-checks { display:grid; gap:10px; margin-top:16px; }
+    #kotiki-preview .kt-check { display:flex; align-items:center; gap:9px; font-size:13px; }
+    #kotiki-preview .kt-check input { width:18px; height:18px; flex:none; margin:0; accent-color:var(--kt-purple); }
+    #kotiki-preview .kt-themes { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:18px; }
+    #kotiki-preview .kt-theme { border:1px solid var(--kt-line); border-radius:13px; padding:9px 13px; min-height:44px; background:var(--kt-panel); }
+    #kotiki-preview .kt-theme[aria-pressed="true"] { background:var(--kt-soft); border-color:var(--kt-purple); color:var(--kt-purple); }
+    #kotiki-preview .kt-inline-form { display:flex; flex-wrap:wrap; align-items:end; gap:9px; margin-bottom:18px; }
+    #kotiki-preview .kt-inline-form label { flex:1; min-width:150px; }
+    #kotiki-preview { --kt-goal:light-dark(#23756b,#8bd5c9); --kt-goal-bg:light-dark(#e8f2ef,#223f3c); --kt-bar:light-dark(#dfd0e9,#51405f); }
+    #kotiki-preview .kt-month { display:block; }
+    #kotiki-preview .kt-month-head, #kotiki-preview .kt-month-week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); }
+    #kotiki-preview .kt-month-week { row-gap:3px; padding-bottom:8px; border-bottom:1px solid var(--kt-line); }
+    #kotiki-preview .kt-month-bar { grid-row:2; min-width:0; min-height:24px; padding:3px 6px; border:0; background:var(--kt-bar); color:var(--kt-ink); text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; border-radius:0; }
+    #kotiki-preview .kt-month-bar.kt-bar-start { border-top-left-radius:7px; border-bottom-left-radius:7px; margin-left:3px; }
+    #kotiki-preview .kt-month-bar.kt-bar-end { border-top-right-radius:7px; border-bottom-right-radius:7px; margin-right:3px; }
+    #kotiki-preview .kt-tentative { opacity:.57; }
+    #kotiki-preview .kt-month-bar.kt-tentative { border-top:1px dashed var(--kt-purple); border-bottom:1px dashed var(--kt-purple); }
+    #kotiki-preview .kt-dot.kt-dot-goal { background:var(--kt-goal); }
+    #kotiki-preview .kt-dot.kt-dot-pending { background:transparent; border:1px dashed var(--kt-purple); width:6px; height:6px; }
+    #kotiki-preview .kt-dot.kt-dot-goal.kt-dot-pending { border-color:var(--kt-goal); }
+    #kotiki-preview .kt-calendar-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; color:var(--kt-muted); font-size:11px; }
+    #kotiki-preview .kt-calendar-legend span { display:inline-flex; align-items:center; gap:5px; }
+    #kotiki-preview .kt-record-open { display:block; text-align:left; min-width:0; width:100%; border:0; padding:0; background:transparent; }
+    #kotiki-preview .kt-record-line { display:flex; align-items:start; gap:6px; }
+    #kotiki-preview .kt-record-line .kt-record-open { flex:1; }
+    #kotiki-preview .kt-goal { display:flex; gap:6px; align-items:center; padding:5px 7px; border-radius:9px; background:var(--kt-goal-bg); color:var(--kt-ink); min-width:0; }
+    #kotiki-preview .kt-goal-title { flex:1; border:0; padding:2px 0; min-width:0; background:transparent; text-align:left; font-size:12px; overflow-wrap:anywhere; }
+    #kotiki-preview .kt-goal-title small { display:block; color:var(--kt-muted); font-size:11px; }
+    #kotiki-preview .kt-tick { flex:none; width:28px; min-height:32px; padding:2px; border:0; background:transparent; color:var(--kt-goal); font-size:19px; }
+    #kotiki-preview .kt-done { opacity:.52; }
+    #kotiki-preview .kt-done .kt-goal-title span, #kotiki-preview .kt-done strong { text-decoration:line-through; }
+    #kotiki-preview .kt-completed { display:grid; gap:7px; border-top:1px solid var(--kt-line); padding-top:8px; margin-top:5px; }
+    #kotiki-preview .kt-completed-label { color:var(--kt-muted); font-size:11px; }
+    #kotiki-preview .kt-list-button { text-align:left; width:100%; color:inherit; font:inherit; }
+    #kotiki-preview .kt-list-detail { margin-top:20px; padding-top:18px; border-top:1px solid var(--kt-line); }
+    #kotiki-preview .kt-invite-items { display:grid; gap:8px; margin-bottom:18px; }
+    #kotiki-preview .kt-invite-choice { width:100%; text-align:left; border:1px solid var(--kt-line); border-radius:12px; background:var(--kt-panel); padding:11px 13px; }
+    #kotiki-preview .kt-invite-choice[aria-pressed="true"] { background:var(--kt-soft); border-color:var(--kt-purple); }
+    #kotiki-preview .kt-invite-choice strong { display:block; font-weight:500; }
+    #kotiki-preview .kt-history { border-top:1px solid var(--kt-line); padding-top:20px; margin-top:24px; }
+    #kotiki-preview .kt-history-title { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:12px; }
+    #kotiki-preview .kt-archive-footer { border-top:1px solid var(--kt-line); margin-top:24px; padding-top:16px; }
+    #kotiki-preview #kt-open-archive { width:100%; }
+    #kotiki-preview .kt-nav [data-page="settings"] { margin-top:auto; }
+    #kotiki-preview .kt-setting-group { max-width:600px; margin-bottom:24px; }
+    #kotiki-preview .kt-setting-row { padding:13px 0; border-bottom:1px solid var(--kt-line); }
+    #kotiki-preview #kt-plan-add { padding:12px 16px; }
+    #kotiki-preview #kt-unscheduled-completed { margin-top:18px; }
+    #kotiki-preview .kt-weekday { text-align:center; font-size:12px; padding:8px 0; color:var(--kt-muted); }
+    #kotiki-preview .kt-month-day { min-width:0; min-height:64px; padding:9px 2px; display:flex; flex-direction:column; align-items:center; gap:7px; border:1px solid transparent; border-radius:12px; background:transparent; }
+    #kotiki-preview .kt-month-day.kt-outside { color:var(--kt-muted); }
+    #kotiki-preview .kt-month-day[aria-pressed="true"] { background:var(--kt-soft); border-color:var(--kt-purple); color:var(--kt-purple); }
+    #kotiki-preview .kt-month-day.kt-today .kt-number { text-decoration:underline; text-underline-offset:4px; font-weight:650; }
+    #kotiki-preview .kt-dots { display:flex; gap:2px; min-height:6px; align-items:center; }
+    #kotiki-preview .kt-dot { width:5px; height:5px; border-radius:50%; background:var(--kt-purple); }
+    #kotiki-preview .kt-agenda { margin-top:22px; padding-top:18px; border-top:1px solid var(--kt-line); }
+    #kotiki-preview .kt-agenda .kt-task { max-width:600px; }
+    #kotiki-preview .kt-message { color:var(--kt-purple); font-size:12px; margin-top:12px; }
+    #kotiki-preview [hidden] { display:none!important; }
+    @container(max-width:560px) {
+      #kotiki-preview .kt-top { padding:16px 13px; padding-right:86px; }
+      #kotiki-preview .kt-brand { font-size:18px; }
+      #kotiki-preview .kt-shell { grid-template-columns:56px minmax(0,1fr); }
+      #kotiki-preview .kt-nav { padding:12px 4px; gap:6px; }
+      #kotiki-preview .kt-nav button { font-size:9px; }
+      #kotiki-preview main { padding:16px 10px; }
+      #kotiki-preview .kt-heading { align-items:flex-start; }
+      #kotiki-preview h2 { font-size:20px; }
+      #kotiki-preview .kt-week { gap:3px; }
+      #kotiki-preview .kt-day { border-radius:8px; }
+      #kotiki-preview .kt-day span { font-size:10px; }
+      #kotiki-preview .kt-task { padding:14px; }
+      #kotiki-preview .kt-letter { padding:15px; }
+      #kotiki-preview .kt-actions { flex-direction:column; }
+      #kotiki-preview .kt-actions button { width:100%; }
+      #kotiki-preview .kt-form-grid { grid-template-columns:1fr; }
+      #kotiki-preview .kt-editor { padding:14px; }
+      #kotiki-preview .kt-period-nav { flex:1; justify-content:space-between; gap:3px; }
+      #kotiki-preview .kt-period-title { min-width:0; }
+      #kotiki-preview .kt-month { gap:2px; }
+      #kotiki-preview .kt-month-day { min-height:52px; border-radius:9px; }
+      #kotiki-preview .kt-theme { padding:8px 10px; }
+    }
+  </style>
+  <div class="kt-app">
+    <header class="kt-top"><div class="kt-cat"><i data-lucide="cat" aria-hidden="true"></i></div><div><div class="kt-brand">Kotiki team</div><div class="kt-muted">Вместе — по нашим планам</div></div></header>
+    <div class="kt-shell">
+      <nav class="kt-nav" aria-label="Разделы">
+        <button type="button" data-page="board" aria-pressed="true"><i data-lucide="columns-3" aria-hidden="true"></i>Доска</button>
+        <button type="button" data-page="plans" aria-pressed="false"><i data-lucide="sparkles" aria-hidden="true"></i>Планы</button>
+        <button type="button" data-page="calendar" aria-pressed="false"><i data-lucide="calendar-days" aria-hidden="true"></i>Календарь</button>
+        <button type="button" data-page="lists" aria-pressed="false"><i data-lucide="list-checks" aria-hidden="true"></i>Списки</button>
+        <button type="button" data-page="invites" aria-pressed="false"><i data-lucide="mail" aria-hidden="true"></i><span id="kt-invite-label">Зовут · 1</span></button>
+        <button type="button" data-page="settings" aria-pressed="false"><i data-lucide="settings" aria-hidden="true"></i>Настройки</button>
+      </nav>
+      <main>
+        <dialog id="kt-editor-dialog" aria-labelledby="kt-editor-title">
+        <form class="kt-editor" id="kt-event-form" hidden>
+          <div class="kt-heading"><h3 id="kt-editor-title">Новое событие</h3><button type="button" class="kt-action kt-close" id="kt-editor-close" aria-label="Закрыть редактирование">×</button></div>
+          <div class="kt-form-grid">
+            <label class="kt-wide">Название<input id="kt-event-title" maxlength="100" required placeholder="Что запланируем?"></label>
+            <label class="kt-wide">Комментарий<textarea id="kt-event-note" rows="2" maxlength="300" placeholder="Место, ссылка или предложение"></textarea></label>
+            <label>Тип<select id="kt-event-kind"><option value="event">Событие</option><option value="task">Дело</option></select></label>
+            <label>Участники<select id="kt-event-who"><option value="Вместе">Мы оба</option><option value="Ты">Пользователь 1</option><option value="Пользователь 2">Пользователь 2</option></select></label>
+            <label>Дата начала<input id="kt-event-date" type="date"><span class="kt-muted">Дело без даты останется в плане недели.</span></label>
+            <label id="kt-end-date-field">Дата окончания<input id="kt-event-end-date" type="date"><span class="kt-muted">Включительно</span></label>
+            <label class="kt-check kt-wide"><input type="checkbox" id="kt-event-timed" checked>Есть точное время</label>
+            <div class="kt-form-grid kt-wide" id="kt-time-fields"><label>Начало<input id="kt-event-start" type="time"></label><label>Окончание<input id="kt-event-end" type="time"></label></div>
+          </div>
+          <div class="kt-checks"><label class="kt-check"><input type="checkbox" id="kt-event-as-invite">Пригласить Пользователя 2 с подтверждением</label><label class="kt-check"><input type="checkbox" id="kt-event-shared" checked>Видно всем</label><label class="kt-check"><input type="checkbox" id="kt-event-editable" checked>Совместное редактирование</label><label class="kt-check" id="kt-busy-option" hidden><input type="checkbox" id="kt-event-busy" checked>Показывать занятость</label></div>
+          <p id="kt-event-error" class="kt-message" role="alert" hidden></p>
+          <div class="kt-actions"><button type="submit" class="kt-action kt-primary" id="kt-event-save">Сохранить</button><button type="button" class="kt-action" id="kt-event-cancel">Отмена</button></div>
+        </form>
+        </dialog>
+        <section data-section="board" id="kt-board-surface">
+          <div class="kt-heading"><div><h2>Наша неделя</h2><div class="kt-muted">Пользователь 1 и Пользователь 2</div></div><button type="button" class="kt-action kt-primary" id="kt-add-event">+ Добавить</button></div>
+          <div class="kt-view-switch" aria-label="Участники на доске"><button type="button" data-owner-filter="mine" data-filter-surface="board" aria-pressed="false">Мои</button><button type="button" data-owner-filter="user2" data-filter-surface="board" aria-pressed="false">Пользователь 2</button><button type="button" data-owner-filter="all" data-filter-surface="board" aria-pressed="true">Все</button></div>
+          <div class="kt-period"><div class="kt-period-nav"><button type="button" class="kt-action kt-arrow" id="kt-week-prev" aria-label="Предыдущая неделя">‹</button><span class="kt-period-title" id="kt-week-title" aria-live="polite"></span><button type="button" class="kt-action kt-arrow" id="kt-week-next" aria-label="Следующая неделя">›</button></div><button type="button" class="kt-action" id="kt-week-today" hidden>Эта неделя</button></div>
+          <input type="range" id="kt-ribbon-position" min="0" max="6" step="0.001" value="0" aria-label="Положение в ленте дней">
+          <div class="kt-columns" id="kt-board-columns" role="region" aria-label="Дни недели — горизонтальная прокрутка"></div>
+          <div class="kt-later"><div class="kt-heading"><h3>На неделе, без дня</h3><button type="button" class="kt-action" id="kt-add-unscheduled">+ Дело</button></div><div class="kt-later-items" id="kt-unscheduled"></div><div class="kt-completed" id="kt-unscheduled-completed"></div></div>
+        </section>
+        <section data-section="invites" hidden>
+          <div class="kt-heading"><h2>Приглашения</h2><button type="button" class="kt-action kt-primary" id="kt-create-invite">+ Пригласить</button></div>
+          <div id="kt-invite-overview">
+            <div class="kt-themes" aria-label="Направление приглашений"><button type="button" class="kt-theme" data-invite-box="incoming" aria-pressed="true">Мне</button><button type="button" class="kt-theme" data-invite-box="outgoing" aria-pressed="false">От меня</button></div>
+            <div class="kt-invite-items" id="kt-invite-items"></div>
+            <div class="kt-history"><div class="kt-history-title"><h3>История</h3><span class="kt-muted" id="kt-history-period">Последние 7 дней</span></div><div class="kt-invite-items" id="kt-invite-history"></div></div>
+            <div class="kt-archive-footer"><button type="button" class="kt-action" id="kt-open-archive">Архив приглашений</button></div>
+          </div>
+          <div id="kt-invite-archive" hidden><div class="kt-heading"><h3>Архив приглашений</h3><button type="button" class="kt-action" id="kt-archive-back">‹ Назад</button></div><div class="kt-invite-items" id="kt-archive-items"></div></div>
+          <div class="kt-invite-panel" id="kt-invite-panel" hidden><button type="button" class="kt-action" id="kt-invite-back" style="margin-bottom:14px">‹ К приглашениям</button><article class="kt-letter">
+            <span class="kt-status" id="kt-status">Ждёт твоего ответа</span>
+            <h3 id="kt-invite-title">Выставка и кофе</h3>
+            <div class="kt-muted" id="kt-invite-author">Пользователь 2 приглашает тебя</div>
+            <p id="kt-invite-description">Давай сходим вместе? После выставки можно зайти за кофе 🐾</p>
+            <div class="kt-details"><div class="kt-detail"><i data-lucide="calendar-days" aria-hidden="true"></i><span id="kt-invite-date">Пятница, 20 ноября</span></div><div class="kt-detail"><i data-lucide="clock" aria-hidden="true"></i><span id="kt-invite-time">19:00–21:00</span></div><div class="kt-detail"><i data-lucide="users" aria-hidden="true"></i><span>Ты и Пользователь 2</span></div></div>
+            <div class="kt-actions" id="kt-response-actions"><button type="button" class="kt-action kt-primary" data-response="accepted">Я с тобой 🐾</button><button type="button" class="kt-action" id="kt-counter-open">Предложить изменения</button><button type="button" class="kt-action" data-response="declined">Не получится</button></div>
+            <form class="kt-form" id="kt-counter-form" hidden>
+              <label>Дата начала<input id="kt-new-date" type="date" value="2026-11-21" required></label>
+              <label>Дата окончания<input id="kt-new-end-date" type="date" value="2026-11-21" required></label>
+              <label>Время начала<input id="kt-new-time" type="time" value="17:00"></label>
+              <label>Время окончания<input id="kt-new-end-time" type="time" value="19:00"></label>
+              <label>Предложение<textarea id="kt-new-note" rows="2" maxlength="300" placeholder="Например, давай в субботу, а потом поужинаем"></textarea></label>
+              <div class="kt-actions"><button type="submit" class="kt-action kt-primary">Отправить Пользователю 2</button><button type="button" class="kt-action" id="kt-counter-cancel">Отмена</button></div>
+              <p id="kt-counter-error" class="kt-message" role="alert" hidden></p>
+            </form>
+            <p class="kt-note" id="kt-feedback" aria-live="polite">Время предварительное — подтвердите план вдвоём.</p>
+          </article></div>
+        </section>
+        <section data-section="plans" hidden>
+          <div class="kt-heading"><h2>Наши планы</h2></div>
+          <div class="kt-themes" id="kt-plan-themes" aria-label="Листы планов"></div>
+          <form class="kt-inline-form" id="kt-theme-form" hidden><label>Название нового листа<input id="kt-theme-name" maxlength="40" required placeholder="Например, Свидания"></label><label class="kt-check"><input type="checkbox" id="kt-theme-shared" checked>Видно всем</label><button class="kt-action kt-primary" type="submit">Создать</button><button class="kt-action" type="button" id="kt-theme-cancel">Отмена</button></form>
+          <div class="kt-heading"><div><h3 id="kt-plan-group-title"></h3><div id="kt-plan-group-access" class="kt-muted"></div></div><button type="button" class="kt-action kt-primary" id="kt-plan-add">+ Добавить план</button></div>
+          <form class="kt-inline-form" id="kt-plan-form" hidden><label><span id="kt-plan-target">Новый план</span><input id="kt-plan-name" maxlength="100" required placeholder="Что хочется сделать?"></label><label class="kt-check"><input type="checkbox" id="kt-plan-shared" checked>Видно всем</label><button class="kt-action kt-primary" type="submit">Добавить</button><button class="kt-action" type="button" id="kt-plan-cancel">Отмена</button></form>
+          <div class="kt-rows" id="kt-plan-items"></div>
+        </section>
+        <section data-section="calendar" hidden>
+          <div class="kt-heading"><h2>Календарь</h2><button type="button" class="kt-action kt-primary" id="kt-calendar-add">+ Событие</button></div>
+          <div class="kt-period"><div class="kt-period-nav"><button type="button" class="kt-action kt-arrow" id="kt-month-prev" aria-label="Предыдущий месяц">‹</button><span class="kt-period-title" id="kt-month-title" aria-live="polite"></span><button type="button" class="kt-action kt-arrow" id="kt-month-next" aria-label="Следующий месяц">›</button></div><button type="button" class="kt-action" id="kt-month-today">Сегодня</button></div>
+          <div class="kt-view-switch" aria-label="Участники в календаре"><button type="button" data-owner-filter="mine" data-filter-surface="calendar" aria-pressed="false">Мои</button><button type="button" data-owner-filter="user2" data-filter-surface="calendar" aria-pressed="false">Пользователь 2</button><button type="button" data-owner-filter="all" data-filter-surface="calendar" aria-pressed="true">Все</button></div>
+          <div class="kt-month" id="kt-month-grid" aria-label="Дни месяца"></div>
+          <div class="kt-calendar-legend"><span><i class="kt-dot" aria-hidden="true"></i>Событие</span><span><i class="kt-dot kt-dot-goal" aria-hidden="true"></i>Задача на день</span><span><i class="kt-dot kt-dot-pending" aria-hidden="true"></i>Ждёт ответа</span></div>
+          <div class="kt-agenda"><h3 id="kt-agenda-title"></h3><div id="kt-agenda-events" aria-live="polite"></div></div>
+        </section>
+        <section data-section="lists" hidden>
+          <div class="kt-heading"><h2>Списки</h2><button type="button" class="kt-action kt-primary" id="kt-list-add">+ Список</button></div>
+          <form id="kt-list-form" class="kt-editor" hidden><label>Название списка<input id="kt-list-name" maxlength="80" required placeholder="Например, Покупки"></label><div class="kt-checks"><label class="kt-check"><input type="checkbox" id="kt-list-shared" checked>Видно всем</label><label class="kt-check"><input type="checkbox" id="kt-list-editable" checked>Совместное редактирование</label></div><div class="kt-actions"><button type="submit" class="kt-action kt-primary">Создать</button><button type="button" class="kt-action" id="kt-list-cancel">Отмена</button></div></form>
+          <div class="kt-rows" id="kt-lists"></div>
+          <div class="kt-list-detail" id="kt-list-detail" hidden><h3 id="kt-list-detail-title"></h3><div id="kt-list-items" class="kt-rows"></div><form class="kt-inline-form" id="kt-list-item-form"><label>Новый пункт<input id="kt-list-item-name" maxlength="100" required></label><button type="submit" class="kt-action">+ Добавить</button></form></div>
+        </section>
+        <section data-section="settings" hidden>
+          <div class="kt-heading"><h2>Настройки</h2></div>
+          <form id="kt-settings-form">
+            <div class="kt-setting-group"><h3>Профиль</h3><label class="kt-setting-row">Отображаемое имя<input id="kt-setting-name" value="Пользователь 1" readonly aria-readonly="true"></label></div>
+            <div class="kt-setting-group"><h3>Оформление</h3><label class="kt-setting-row">Тема<select id="kt-setting-theme"><option value="system">Как на телефоне</option><option value="light">Светлая</option><option value="dark">Тёмная</option></select></label></div>
+            <div class="kt-setting-group"><h3>Уведомления</h3><label class="kt-check kt-setting-row"><input type="checkbox" id="kt-setting-reminders" checked>Напоминания</label><label class="kt-check kt-setting-row"><input type="checkbox" id="kt-setting-assignments" checked>Назначение дел</label><label class="kt-check kt-setting-row"><input type="checkbox" id="kt-setting-changes" checked>Перенос и отмена событий</label><label class="kt-check kt-setting-row"><input type="checkbox" id="kt-setting-invites" checked>Приглашения и ответы</label></div>
+            <div class="kt-setting-group"><h3>Вход в приложение</h3><label class="kt-setting-row">Вход с паролем<select id="kt-setting-password"><option value="yes">Да</option><option value="no">Нет</option></select></label><label class="kt-setting-row">Вход по биометрии<select id="kt-setting-biometric"><option value="yes">Да</option><option value="no">Нет</option></select></label><label class="kt-setting-row">Блокировать после ухода из приложения<select id="kt-setting-lock"><option value="0">Сразу</option><option value="1">Через минуту</option><option value="5">Через 5 минут</option></select></label></div>
+            <div class="kt-setting-group"><h3>Приглашения</h3><label class="kt-setting-row">Дней в истории до архива<input id="kt-setting-retention" type="number" min="1" max="365" step="1" value="7" required></label><p class="kt-note">Срок считается после принятия или отказа. Приглашения без ответа остаются активными.</p></div>
+            <button class="kt-action kt-primary" type="submit">Сохранить настройки</button><p id="kt-settings-saved" class="kt-message" aria-live="polite"></p>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script>
+(() => {
+  const root=document.getElementById('kotiki-preview');
+  const $=selector=>root.querySelector(selector);
+  const today='2026-11-16',days=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+  const fullDays=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+  const dayMs=86400000,historySeed=Date.parse(today+'T00:00:00Z');
+  const parseDate=value=>new Date(value+'T12:00:00Z');
+  const iso=date=>date.toISOString().slice(0,10);
+  const offset=(value,n)=>iso(new Date(parseDate(value).getTime()+n*86400000));
+  const monday=value=>offset(value,-((parseDate(value).getUTCDay()+6)%7));
+  const diff=(a,b)=>Math.round((parseDate(a)-parseDate(b))/86400000);
+  const formatDate=(value,options)=>new Intl.DateTimeFormat('ru-RU',{...options,timeZone:'UTC'}).format(parseDate(value));
+  const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(parseDate(value).getTime())&&iso(parseDate(value))===value;
+  const escape=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const uid=prefix=>prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7);
+  const dayTitle=date=>fullDays[(parseDate(date).getUTCDay()+6)%7]+', '+formatDate(date,{day:'2-digit',month:'2-digit'});
+  const defaults={
+    version:6,page:'board',boardFilter:'all',calendarFilter:'all',view:'ribbon',day:(parseDate(today).getUTCDay()+6)%7,weekStart:monday(today),month:'2026-11-01',selectedDate:'2026-11-20',theme:'weekends',selectedList:null,inviteBox:'incoming',selectedInvite:null,inviteView:'overview',inviteReturn:'overview',
+    settings:{theme:'system',lockMinutes:'1',password:true,biometric:true,retentionDays:7,reminders:true,assignments:true,changes:true,invites:true},
+    events:[
+      {id:'movie',title:'Выбрать фильм',date:today,kind:'task',who:'Вместе',shared:true,editable:true},
+      {id:'busy',title:'Занято',date:'2026-11-18',start:'15:00',end:'16:00',kind:'event',who:'Пользователь 2',readonly:true,shared:false,busy:true},
+      {id:'groceries',title:'Заказать продукты',date:'2026-11-19',kind:'task',who:'Ты',shared:true,editable:true},
+      {id:'coffee',title:'Заказать кофе',date:'2026-11-19',kind:'task',who:'Вместе',shared:true,editable:true},
+      {id:'call',title:'Позвонить по бронированию',date:'2026-11-19',start:'12:00',end:'12:15',kind:'task',who:'Ты',shared:true,editable:true},
+      {id:'collected',title:'Забрать заказ',date:'2026-11-19',kind:'task',who:'Ты',shared:true,editable:true,done:true},
+      {id:'breakfast',title:'Завтрак вдвоём',date:'2026-11-21',start:'11:00',end:'12:00',kind:'event',who:'Вместе',shared:true,editable:true},
+      {id:'trip',title:'Выезд за город',date:'2026-11-21',endDate:'2026-11-23',kind:'event',who:'Вместе',shared:true,editable:true},
+      {id:'walk',title:'Вечерняя прогулка',date:'2026-11-24',start:'19:00',end:'20:00',kind:'event',who:'Вместе',shared:true,editable:true},
+      {id:'month-end',title:'Планы на декабрь',date:'2026-11-29',start:'18:00',end:'19:00',kind:'event',who:'Вместе',shared:true,editable:true},
+      {id:'weekend-place',title:'Выбрать место для выходных',date:'',week:today,kind:'task',who:'Вместе',shared:true,editable:true},
+      {id:'photos',title:'Разобрать фотографии',date:'',week:today,kind:'task',who:'Вместе',shared:true,editable:true}
+    ],
+    themes:[{id:'weekends',name:'Выходные',items:['Выбраться за город','Найти уютное кафе']},{id:'travel',name:'Путешествия',items:['Маленькое путешествие вдвоём','Выбрать маршрут на отпуск']},{id:'home',name:'Дом',items:['Обустроить уголок для чтения']}],
+    lists:[{id:'places',name:'🐾 Места для нас',shared:true,editable:true,items:['Кафе с котиками','Новая выставка']},{id:'films',name:'🍿 Посмотреть вместе',shared:true,editable:true,items:['Выбрать фильм на пятницу']},{id:'gifts',name:'🎁 Мои идеи подарков',shared:false,editable:false,items:[]}],
+    invites:[
+      {id:'invite-incoming',title:'Выставка и кофе',description:'Давай сходим вместе? После выставки можно зайти за кофе 🐾',date:'2026-11-20',endDate:'2026-11-20',start:'19:00',end:'21:00',kind:'event',who:'Вместе',from:'Пользователь 2',to:'Ты',status:'pending'},
+      {id:'invite-outgoing',title:'Прогулка после работы',description:'Может, пройдёмся вместе?',date:'2026-11-19',endDate:'2026-11-19',start:'19:00',end:'20:00',kind:'event',who:'Вместе',from:'Ты',to:'Пользователь 2',status:'pending'},
+      {id:'history-cinema',title:'Кино в выходные',date:'2026-11-14',start:'18:00',end:'20:00',kind:'event',who:'Вместе',from:'Пользователь 2',to:'Ты',status:'accepted',resolvedAt:historySeed-2*dayMs},
+      {id:'history-walk',title:'Утренняя прогулка',date:'2026-11-15',start:'10:00',end:'11:00',kind:'event',who:'Вместе',from:'Пользователь 2',to:'Ты',status:'declined',resolvedAt:historySeed-dayMs},
+      {id:'archive-market',title:'Сходить на рынок',date:'2026-11-02',start:'11:00',end:'12:00',kind:'event',who:'Вместе',from:'Ты',to:'Пользователь 2',status:'accepted',resolvedAt:historySeed-14*dayMs}
+    ]
+  };
+  function restore(prior) {
+    const next=structuredClone(defaults);
+    if(prior?.version===5||prior?.version===6){const merged={...next,...prior,version:6,settings:{...next.settings,...prior.settings}};for(const invite of merged.invites)if(['accepted','declined'].includes(invite.status)&&!invite.resolvedAt)invite.resolvedAt=Date.now();if(prior.version===5)merged.page='board';return merged;}
+    if(prior?.version===4){
+      const merged={...next,...prior,version:5,page:'board',view:'ribbon',inviteView:'overview',selectedInvite:null,day:prior.weekStart===monday(today)?(parseDate(today).getUTCDay()+6)%7:0,settings:{...next.settings,...prior.settings}};
+      merged.invites=structuredClone(prior.invites||next.invites);
+      for(const sample of next.invites.filter(invite=>invite.resolvedAt))if(!merged.invites.some(invite=>invite.id===sample.id))merged.invites.push(sample);
+      for(const invite of merged.invites)if(['accepted','declined'].includes(invite.status)&&!invite.resolvedAt)invite.resolvedAt=Date.now();
+      return merged;
+    }
+    if(prior?.version===3){
+      for(const key of ['view','day','weekStart','month','selectedDate','theme','events','themes']) if(prior[key]!==undefined)next[key]=structuredClone(prior[key]);
+      for(const id of ['coffee','call','collected','trip'])if(!next.events.some(event=>event.id===id))next.events.push(structuredClone(defaults.events.find(event=>event.id===id)));
+      if(prior.response)next.invites[0].status=prior.response;
+      if(prior.response==='counter')next.invites[0].proposal={by:'Ты',date:prior.date||'2026-11-21',endDate:prior.date||'2026-11-21',start:prior.time||'17:00',end:'19:00',note:prior.note||''};
+    }
+    next.day=next.weekStart===monday(today)?(parseDate(today).getUTCDay()+6)%7:0;
+    return next;
+  }
+  let state=restore(globalThis.openai?.widgetState?.privateContent?.sharedOrganizer),editorId=null;
+  // Ownership is independent of who participates in an event.
+  function normalizeAccess(){
+    state.version=6;
+    for(const event of state.events)if(!event.owner)event.owner=event.readonly?'Пользователь 2':'Ты';
+    for(const group of [...state.themes,...state.lists]){if(group.shared===undefined)group.shared=true;if(!group.owner)group.owner='Ты';}
+    if(!state.themes.some(group=>group.id==='personal'))state.themes.push({id:'personal',name:'Мои идеи',owner:'Ты',shared:false,items:['Подготовить сюрприз']});
+    if(!state.events.some(event=>event.id==='private-idea'))state.events.push({id:'private-idea',title:'Выбрать подарок',date:today,kind:'task',who:'Ты',owner:'Ты',shared:false,busy:false,editable:false});
+    state.settings.retentionDays=Math.max(1,Math.min(365,Number(state.settings.retentionDays)||7));
+  }
+  normalizeAccess();
+  const personName=who=>who==='Ты'?'Пользователь 1':who;
+  const catIcon='<i data-lucide="cat" aria-hidden="true"></i>';
+  function accessBadge(item,group=false){
+    const who=item.who||(item.shared===false?item.owner||'Ты':'Вместе');
+    const hidden=item.shared===false,onlyBusy=hidden&&item.busy===true;
+    const people=who==='Вместе'?catIcon+catIcon:catIcon;
+    const shield='<span class="kt-shield-cat" aria-hidden="true"><span class="kt-shield-outline"><i data-lucide="shield"></i></span><span class="kt-shield-face"><i data-lucide="cat"></i></span></span>';
+    const icon=onlyBusy?people+'<i data-lucide="eye-off" aria-hidden="true"></i>':hidden?shield:people;
+    const owner=item.owner==='Пользователь 2'?'Пользователю 2':'тебе';
+    const privacy=onlyBusy?'Подробности видны только '+owner+'. Другому видна занятость.':hidden?'Видно только '+owner+'. Другой участник не видит эту запись.':'Видно вам обоим.';
+    const participants=who==='Вместе'?'Пользователь 1 и Пользователь 2.':personName(who)+'.';
+    const editing=group&&item.shared!==false?(item.editable===false?' Редактировать может только владелец.':' Редактировать можете оба.'):'';
+    const label=participants+' '+privacy+editing;
+    return '<button type="button" class="kt-access" data-access-help="true" data-tooltip="'+escape(label)+'" aria-label="'+escape(label)+'">'+icon+'</button>';
+  }
+  function permitted(item){return item.shared!==false||item.owner==='Ты'||item.busy===true;}
+  function matchesFilter(item,surface){const filter=state[surface+'Filter']||'all';return filter==='all'||item.who==='Вместе'||item.who===(filter==='mine'?'Ты':'Пользователь 2');}
+  function visibleRecords(surface){return records().filter(item=>matchesFilter(item,surface));}
+  const endDate=event=>event.kind==='task'?event.date:event.endDate||event.date;
+  const multi=event=>Boolean(event.date&&endDate(event)>event.date);
+  const isGoal=event=>event.kind==='task'&&!event.start;
+  const tentative=event=>Boolean(event.inviteId&&event.inviteStatus!=='accepted');
+  const awaiting=invite=>invite.status==='pending'?invite.to:invite.status==='counter'?(invite.proposal?.by===invite.from?invite.to:invite.from):null;
+  const selectedInvite=()=>state.invites.find(invite=>invite.id===state.selectedInvite);
+  const resolved=invite=>['accepted','declined'].includes(invite.status);
+  const archived=invite=>resolved(invite)&&Number.isFinite(Number(invite.resolvedAt))&&Date.now()-Number(invite.resolvedAt)>=state.settings.retentionDays*dayMs;
+  function inviteStatus(invite){
+    if(invite.status==='accepted')return 'Приглашение принято';
+    if(invite.status==='declined')return 'Приглашение отклонено';
+    const person=awaiting(invite);
+    if(invite.status==='counter')return person==='Ты'?'Встречное предложение — ждёт тебя':'Изменения ждут подтверждения Пользователя 2';
+    return person==='Ты'?'Ждёт твоего ответа':'Отправлено · ждёт ответа Пользователя 2';
+  }
+  function records(){return state.events.filter(permitted).map(item=>item.shared===false&&item.owner!=='Ты'?{...item,title:'Занято',description:'',readonly:true}:item).concat(state.invites.filter(invite=>invite.status!=='declined').map(invite=>({...invite,inviteId:invite.id,inviteStatus:invite.status})));}
+  function onDate(date,surface='board'){return visibleRecords(surface).filter(event=>event.date&&event.date<=date&&endDate(event)>=date).sort((a,b)=>Number(Boolean(a.done))-Number(Boolean(b.done))||(a.start||'').localeCompare(b.start||'')||a.id.localeCompare(b.id));}
+  function rangeLabel(event){return multi(event)?formatDate(event.date,{day:'numeric',month:'short'})+' — '+formatDate(endDate(event),{day:'numeric',month:'short'}):event.date?formatDate(event.date,{weekday:'long',day:'numeric',month:'long'}):'На неделе, без дня';}
+  function timeLabel(event){return event.start?event.start+'–'+event.end:event.kind==='event'?'Весь день':'Без времени';}
+  function eventCard(event,date='agenda'){
+    const pending=tentative(event),canComplete=event.kind==='task'&&!event.readonly&&!pending;
+    const status=event.inviteId?inviteStatus(event):event.done?'Выполнено':event.status||'Запланировано';
+    const key=escape(event.id+'@'+date);
+    const tick=canComplete?'<button type="button" class="kt-tick" data-toggle-done="'+escape(event.id)+'" aria-pressed="'+Boolean(event.done)+'" aria-label="'+(event.done?'Вернуть в дела: ':'Выполнить: ')+escape(event.title)+'">'+(event.done?'✓':'○')+'</button>':'';
+    if(isGoal(event))return '<div data-record="'+key+'" class="kt-goal'+(pending?' kt-tentative':'')+(event.done?' kt-done':'')+'">'+tick+'<button type="button" class="kt-goal-title" data-event="'+escape(event.id)+'"><span>'+escape(event.title)+'</span>'+(event.inviteId?'<small>'+escape(status)+'</small>':'')+'</button>'+accessBadge(event)+'</div>';
+    const open=event.readonly?'div':'button';
+    return '<div data-record="'+key+'" class="kt-task'+(pending?' kt-invited kt-tentative':'')+(event.readonly?' kt-busy':'')+(event.done?' kt-done':'')+'"><div class="kt-card-meta"><span class="kt-time">'+escape(multi(event)?rangeLabel(event):timeLabel(event))+'</span>'+accessBadge(event)+'</div><div class="kt-record-line"><'+open+(open==='button'?' type="button" data-event="'+escape(event.id)+'"':'')+' class="kt-record-open"><strong>'+escape(event.title)+'</strong><span class="kt-who">'+escape(status)+'</span></'+open+'>'+tick+'</div></div>';
+  }
+  function persist(){
+    if(!globalThis.openai?.setWidgetState)return;
+    const snapshot={modelContent:{screen:state.page,boardFilter:state.boardFilter,calendarFilter:state.calendarFilter,boardView:'ribbon',weekStart:state.weekStart,leftmostDay:offset(state.weekStart,state.day),selectedDate:state.selectedDate,planTheme:state.themes.find(theme=>theme.id===state.theme)?.name,invitationBox:state.inviteBox,invitationView:state.inviteView,pendingInvitations:state.invites.filter(invite=>awaiting(invite)).length},privateContent:{sharedOrganizer:state}};
+    if(JSON.stringify(snapshot).length<15000)globalThis.openai.setWidgetState(snapshot).catch(()=>{});
+  }
+  function renderBoard(){
+    const dates=days.map((_,index)=>offset(state.weekStart,index));
+    $('#kt-week-title').textContent=formatDate(dates[0],{day:'numeric',month:'short'})+' — '+formatDate(dates[6],{day:'numeric',month:'short',year:'numeric'});
+    $('#kt-week-today').hidden=state.weekStart===monday(today);
+    $('#kt-board-columns').innerHTML=dates.map((date,index)=>{
+      const items=onDate(date),goals=items.filter(item=>!item.done&&isGoal(item)),scheduled=items.filter(item=>!item.done&&!isGoal(item)),done=items.filter(item=>item.done);
+      const complete='<div class="kt-completed" data-completed-day="'+date+'"><span class="kt-completed-label">Выполнено · '+done.length+'</span>'+(done.map(item=>eventCard(item,date)).join('')||'<span class="kt-muted">Пока пусто</span>')+'</div>';
+      return '<div class="kt-column'+(date===today?' kt-today-column':'')+'" data-column="'+index+'"><div class="kt-label">'+escape(dayTitle(date))+'</div><div class="kt-day-items">'+goals.map(item=>eventCard(item,date)).join('')+scheduled.map(item=>eventCard(item,date)).join('')+(!items.length?'<div class="kt-empty">Без планов</div>':'')+'<button type="button" class="kt-day-add" data-add-date="'+date+'" aria-label="Добавить на '+escape(formatDate(date,{day:'numeric',month:'long'}))+'">+</button>'+complete+'</div></div>';
+    }).join('');
+    const unscheduled=visibleRecords('board').filter(event=>!event.date&&event.week===state.weekStart);
+    $('#kt-unscheduled').innerHTML=unscheduled.filter(item=>!item.done).map(item=>'<div style="min-width:150px;max-width:100%">'+eventCard(item,'week')+'</div>').join('')||'<span class="kt-muted">Пока нет дел без даты</span>';
+    const complete=unscheduled.filter(item=>item.done);
+    $('#kt-unscheduled-completed').innerHTML='<span class="kt-completed-label">Выполнено без дня · '+complete.length+'</span><div class="kt-later-items">'+(complete.map(item=>'<div style="min-width:150px;max-width:100%">'+eventCard(item,'week')+'</div>').join('')||'<span class="kt-muted">Пока пусто</span>')+'</div>';
+    $('#kt-ribbon-position').value=state.day;$('#kt-ribbon-position').setAttribute('aria-valuetext',dayTitle(offset(state.weekStart,state.day)));
+  }
+  function renderPlans(){
+    if(!state.themes.some(theme=>theme.id===state.theme))state.theme=state.themes[0].id;
+    const theme=state.themes.find(item=>item.id===state.theme);
+    $('#kt-plan-group-title').textContent=theme.name;$('#kt-plan-target').textContent='Добавить в «'+theme.name+'»';
+    $('#kt-plan-group-access').innerHTML=accessBadge(theme,true);
+    $('#kt-plan-themes').innerHTML=state.themes.map(item=>'<span class="kt-theme-pair" data-selected="'+(item.id===state.theme)+'"><button type="button" class="kt-theme" data-theme="'+escape(item.id)+'" aria-pressed="'+(item.id===state.theme)+'">'+escape(item.name)+'</button>'+accessBadge(item,true)+'</span>').join('')+'<button type="button" class="kt-theme" data-new-theme="true" aria-label="Добавить новый лист планов">+ Лист</button>';
+    $('#kt-plan-items').innerHTML=theme.items.map(plan=>{const item=typeof plan==='string'?{title:plan,shared:theme.shared,owner:theme.owner}:({...plan,shared:theme.shared&&plan.shared!==false,owner:plan.owner||theme.owner});return '<div class="kt-row"><div class="kt-card-meta"><span class="kt-muted">Без даты</span>'+accessBadge(item)+'</div><strong>'+escape(item.title)+'</strong></div>';}).join('')||'<div class="kt-empty">В этом листе пока нет планов. Добавим первый?</div>';
+  }
+  function dayDots(date){
+    const singles=onDate(date,'calendar').filter(item=>!multi(item));
+    const buckets=[{goal:false,pending:false},{goal:true,pending:false},{goal:false,pending:true},{goal:true,pending:true}];
+    return buckets.filter(bucket=>singles.some(item=>isGoal(item)===bucket.goal&&tentative(item)===bucket.pending)).map(bucket=>'<span class="kt-dot'+(bucket.goal?' kt-dot-goal':'')+(bucket.pending?' kt-dot-pending kt-tentative':'')+'"></span>').join('');
+  }
+  function renderCalendar(){
+    $('#kt-month-title').textContent=formatDate(state.month,{month:'long',year:'numeric'});
+    const start=monday(state.month);
+    let html='<div class="kt-month-head">'+days.map(day=>'<div class="kt-weekday">'+day+'</div>').join('')+'</div>';
+    for(let week=0;week<6;week++){
+      const first=offset(start,week*7),last=offset(first,6),laneEnds=[];
+      const spans=visibleRecords('calendar').filter(item=>multi(item)&&item.date<=last&&endDate(item)>=first).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
+      html+='<div class="kt-month-week" data-month-week="'+first+'">';
+      for(let day=0;day<7;day++){
+        const date=offset(first,day),count=onDate(date,'calendar').length;
+        html+='<button type="button" data-calendar-date="'+date+'" style="grid-column:'+(day+1)+';grid-row:1" class="kt-month-day'+(date.slice(0,7)!==state.month.slice(0,7)?' kt-outside':'')+(date===today?' kt-today':'')+'" aria-pressed="'+(date===state.selectedDate)+'" aria-label="'+escape(formatDate(date,{day:'numeric',month:'long',year:'numeric'}))+'; записей: '+count+'"><span class="kt-number">'+parseDate(date).getUTCDate()+'</span><span class="kt-dots" aria-hidden="true">'+dayDots(date)+'</span></button>';
+      }
+      for(const item of spans){
+        const from=Math.max(0,diff(item.date,first)),to=Math.min(7,diff(endDate(item),first)+1);
+        let lane=laneEnds.findIndex(end=>end<=from);if(lane<0)lane=laneEnds.length;laneEnds[lane]=to;
+        const label=item.title+' · '+rangeLabel(item)+(tentative(item)?' · ждёт ответа':'');
+        html+='<button type="button" data-range-event="'+escape(item.id)+'" data-range-date="'+(item.date<first?first:item.date)+'" class="kt-month-bar'+(item.date>=first?' kt-bar-start':'')+(endDate(item)<=last?' kt-bar-end':'')+(tentative(item)?' kt-tentative':'')+'" style="grid-column:'+(from+1)+' / '+(to+1)+';grid-row:'+(lane+2)+'" aria-label="'+escape(label)+'" data-tooltip="'+escape(label)+'">'+escape(item.title)+'</button>';
+      }
+      html+='</div>';
+    }
+    $('#kt-month-grid').innerHTML=html;
+    $('#kt-agenda-title').textContent=formatDate(state.selectedDate,{weekday:'long',day:'numeric',month:'long'});
+    $('#kt-agenda-events').innerHTML=onDate(state.selectedDate,'calendar').map(item=>eventCard(item)).join('')||'<div class="kt-empty">На этот день пока ничего нет</div>';
+  }
+  function renderLists(){
+    $('#kt-lists').innerHTML=state.lists.map(list=>'<div class="kt-row kt-list-row"><button type="button" class="kt-list-button" data-list="'+escape(list.id)+'"><strong>'+escape(list.name)+'</strong></button>'+accessBadge(list,true)+'</div>').join('');
+    const list=state.lists.find(item=>item.id===state.selectedList);
+    $('#kt-list-detail').hidden=!list;
+    if(list){$('#kt-list-detail-title').textContent=list.name;$('#kt-list-items').innerHTML=list.items.map(item=>'<div class="kt-row">'+escape(item)+'</div>').join('')||'<div class="kt-empty">Список пока пуст</div>';}
+  }
+  function inviteSummary(invite,origin='overview'){
+    return '<button type="button" class="kt-invite-choice" data-invite="'+escape(invite.id)+'" data-invite-origin="'+origin+'"><strong>'+escape(invite.title)+'</strong><span class="kt-muted">'+escape(rangeLabel(invite))+' · '+escape(invite.from==='Ты'?'Ты → Пользователь 2':'Пользователь 2 → Ты')+'</span><br><span class="kt-muted">'+escape(inviteStatus(invite))+'</span></button>';
+  }
+  function renderInvites(){
+    $('#kt-history-period').textContent='За '+state.settings.retentionDays+' дн. после ответа';
+    if(!['overview','detail','archive'].includes(state.inviteView))state.inviteView='overview';
+    const invite=selectedInvite();if(state.inviteView==='detail'&&!invite)state.inviteView='overview';
+    const direction=state.invites.filter(item=>state.inviteBox==='outgoing'?item.from==='Ты':item.to==='Ты');
+    const active=direction.filter(item=>!resolved(item));
+    const history=direction.filter(item=>resolved(item)&&!archived(item)).sort((a,b)=>b.resolvedAt-a.resolvedAt);
+    const archive=state.invites.filter(archived).sort((a,b)=>b.resolvedAt-a.resolvedAt);
+    root.querySelectorAll('[data-invite-box]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.inviteBox===state.inviteBox)));
+    $('#kt-invite-overview').hidden=state.inviteView!=='overview';
+    $('#kt-invite-panel').hidden=state.inviteView!=='detail';
+    $('#kt-invite-archive').hidden=state.inviteView!=='archive';
+    $('#kt-invite-items').innerHTML=active.map(item=>inviteSummary(item)).join('')||'<div class="kt-empty">Нет приглашений, ожидающих ответа</div>';
+    $('#kt-invite-history').innerHTML=history.map(item=>inviteSummary(item)).join('')||'<div class="kt-empty">В выбранный срок пока нет ответов</div>';
+    $('#kt-archive-items').innerHTML=archive.map(item=>inviteSummary(item,'archive')).join('')||'<div class="kt-empty">В архиве пока пусто</div>';
+    $('#kt-open-archive').textContent='Архив приглашений'+(archive.length?' · '+archive.length:'');
+    $('#kt-invite-label').textContent='Зовут'+(state.invites.some(item=>awaiting(item)==='Ты')?' · '+state.invites.filter(item=>awaiting(item)==='Ты').length:'');
+    if(!invite)return;
+    $('#kt-status').textContent=inviteStatus(invite);$('#kt-invite-title').textContent=invite.title;
+    $('#kt-invite-author').textContent=invite.from==='Ты'?'Ты приглашаешь Пользователя 2':'Пользователь 2 приглашает тебя';
+    $('#kt-invite-description').textContent=invite.description||'';
+    $('#kt-invite-date').textContent=rangeLabel(invite);$('#kt-invite-time').textContent=timeLabel(invite);
+    const yourTurn=awaiting(invite)==='Ты';
+    $('#kt-response-actions').hidden=!yourTurn||!$('#kt-counter-form').hidden;
+    const proposal=invite.proposal;
+    $('#kt-feedback').textContent=invite.status==='accepted'?'План подтверждён для вас обоих.':invite.status==='declined'?'Приглашение отклонено и не занимает время.':invite.status==='counter'?'Предложено: '+rangeLabel({...invite,...proposal})+' · '+timeLabel({...invite,...proposal})+(proposal.note?' · '+proposal.note:'')+'. Исходный план изменится после подтверждения.':invite.from==='Ты'?'Время предварительное. Ждём ответа Пользователя 2.':'Время предварительное — подтвердите план вдвоём.';
+  }
+  function renderSettings(){
+    const settings=state.settings;
+    $('#kt-setting-name').value='Пользователь 1';$('#kt-setting-password').value=settings.password?'yes':'no';$('#kt-setting-biometric').value=settings.biometric?'yes':'no';$('#kt-setting-retention').value=settings.retentionDays;
+    $('#kt-setting-lock').disabled=!settings.password&&!settings.biometric;
+    $('#kt-setting-theme').value=settings.theme;$('#kt-setting-lock').value=settings.lockMinutes;
+    for(const key of ['reminders','assignments','changes','invites'])$('#kt-setting-'+key).checked=Boolean(settings[key]);
+    root.style.colorScheme=settings.theme==='system'?'light dark':settings.theme;
+  }
+  function render(){
+    if(!['board','plans','calendar','lists','invites','settings'].includes(state.page))state.page='board';
+    if(!Number.isInteger(state.day)||state.day<0||state.day>6)state.day=state.weekStart===monday(today)?(parseDate(today).getUTCDay()+6)%7:0;
+    if(!validDate(state.weekStart))state.weekStart=today;state.weekStart=monday(state.weekStart);
+    if(!validDate(state.month))state.month=today.slice(0,7)+'-01';
+    if(!validDate(state.selectedDate))state.selectedDate=today;
+    root.querySelectorAll('[data-page]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.page===state.page)));
+    root.querySelectorAll('[data-section]').forEach(section=>section.hidden=section.dataset.section!==state.page);
+    root.querySelectorAll('[data-owner-filter]').forEach(button=>button.setAttribute('aria-pressed',String((state[button.dataset.filterSurface+'Filter']||'all')===button.dataset.ownerFilter)));
+    renderBoard();renderPlans();renderCalendar();renderLists();renderInvites();renderSettings();
+    globalThis.lucide?.createIcons({attrs:{width:16,height:16}});queueRibbonPosition();
+  }
+  function commit(){render();persist();}
+  function navigate(page){state.page=page;if(page==='invites')state.inviteView='overview';closeEditor();$('#kt-counter-form').hidden=true;commit();}
+  function updateAccess(){
+    const invite=$('#kt-event-as-invite').checked;
+    $('#kt-event-shared').disabled=invite;
+    if(invite)$('#kt-event-shared').checked=true;
+    const shared=$('#kt-event-shared').checked;
+    $('#kt-event-who').disabled=!shared;if(!shared)$('#kt-event-who').value='Ты';
+    $('#kt-event-editable').disabled=!shared;if(!shared)$('#kt-event-editable').checked=false;
+    $('#kt-busy-option').hidden=shared;
+    $('#kt-editor-title').textContent=invite?'Новое приглашение':editorId?'Редактирование':'Новая запись';
+    $('#kt-event-save').textContent=invite?'Отправить приглашение':'Сохранить';
+  }
+  function updateSchedule(){
+    const task=$('#kt-event-kind').value==='task',date=$('#kt-event-date').value;
+    $('#kt-event-date').required=!task;
+    $('#kt-end-date-field').hidden=task;
+    $('#kt-event-timed').disabled=task&&!date;
+    if(task&&!date)$('#kt-event-timed').checked=false;
+    $('#kt-time-fields').hidden=!$('#kt-event-timed').checked;
+    if(date&&(!$('#kt-event-end-date').value||$('#kt-event-end-date').value<date))$('#kt-event-end-date').value=date;
+  }
+  function closeEditor(){
+    $('#kt-event-form').hidden=true;const dialog=$('#kt-editor-dialog');if(dialog.open)dialog.close();
+  }
+  function openEditor(date,event=null,options={}){
+    editorId=event?.id||null;
+    $('#kt-event-title').value=event?.title||'';$('#kt-event-note').value=event?.description||'';
+    $('#kt-event-kind').value=event?.kind||options.kind||'event';$('#kt-event-who').value=event?.who||'Вместе';
+    $('#kt-event-date').value=event?event.date:date;$('#kt-event-end-date').value=event?endDate(event):date;
+    $('#kt-event-timed').checked=event?Boolean(event.start):options.kind!=='task';
+    $('#kt-event-start').value=event?event.start||'':'19:00';$('#kt-event-end').value=event?event.end||'':'20:00';
+    $('#kt-event-shared').checked=event?event.shared!==false:true;$('#kt-event-editable').checked=event?event.editable!==false:true;$('#kt-event-busy').checked=event?event.busy!==false:true;
+    $('#kt-event-as-invite').checked=Boolean(options.invite);$('#kt-event-as-invite').disabled=Boolean(event);
+    $('#kt-event-error').hidden=true;updateAccess();updateSchedule();$('#kt-event-form').hidden=false;const dialog=$('#kt-editor-dialog');if(!dialog.open)dialog.showModal();$('#kt-event-title').focus();
+  }
+  function validateSchedule(date,last,start,end,kind){
+    if(kind==='event'&&!date)return 'Выбери дату события';
+    if(date&&!validDate(date)||last&&!validDate(last))return 'Проверь даты';
+    if(last&&(!date||last<date))return 'Дата окончания должна быть не раньше начала';
+    if(Boolean(start)!==Boolean(end))return 'Укажи и начало, и окончание';
+    if(start&&last===date&&end<=start)return 'Окончание должно быть позже начала';
+    return '';
+  }
+  function saveEvent(event){
+    event.preventDefault();
+    const title=$('#kt-event-title').value.trim(),kind=$('#kt-event-kind').value,date=$('#kt-event-date').value;
+    const last=kind==='task'?date:$('#kt-event-end-date').value||date;
+    const timed=$('#kt-event-timed').checked&&Boolean(date),start=timed?$('#kt-event-start').value:'',end=timed?$('#kt-event-end').value:'';
+    const error=!title?'Укажи название':timed&&(!start||!end)?'Укажи начало и окончание':validateSchedule(date,last,start,end,kind);
+    if(error){$('#kt-event-error').textContent=error;$('#kt-event-error').hidden=false;return;}
+    const old=state.events.find(item=>item.id===editorId);
+    const item={id:editorId||uid('event'),title,description:$('#kt-event-note').value.trim(),kind,date,endDate:last,start,end,owner:old?.owner||'Ты',who:$('#kt-event-who').value,shared:$('#kt-event-shared').checked,editable:$('#kt-event-editable').checked,busy:$('#kt-event-busy').checked,week:date?'':state.weekStart,done:old?.done||false};
+    if($('#kt-event-as-invite').checked){item.id=uid('invite');item.from='Ты';item.to='Пользователь 2';item.status='pending';state.invites.push(item);state.selectedInvite=item.id;state.inviteBox='outgoing';state.inviteView='detail';state.inviteReturn='overview';}
+    else{const index=state.events.findIndex(entry=>entry.id===editorId);if(index>=0)state.events[index]=item;else state.events.push(item);}
+    if(date){state.weekStart=monday(date);state.day=(parseDate(date).getUTCDay()+6)%7;state.selectedDate=date;state.month=date.slice(0,7)+'-01';}
+    closeEditor();commit();
+  }
+  function toggleDone(id){
+    const item=state.events.find(event=>event.id===id)||state.invites.find(invite=>invite.id===id);
+    if(!item||item.kind!=='task'||item.readonly||item.status&&item.from&&item.status!=='accepted')return;
+    const positions=new Map();
+    $('#kt-board-surface').querySelectorAll('[data-record]').forEach(element=>positions.set(element.dataset.record,element.getBoundingClientRect()));
+    item.done=!item.done;commit();
+    if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
+      $('#kt-board-surface').querySelectorAll('[data-record]').forEach(element=>{const old=positions.get(element.dataset.record);if(!old)return;const next=element.getBoundingClientRect();const dx=old.left-next.left,dy=old.top-next.top;if((dx||dy)&&element.animate)element.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'translate(0,0)'}],{duration:300,easing:'ease-out'});});
+    }
+  }
+  function openInvitation(id,origin='overview'){const invite=state.invites.find(item=>item.id===id);if(!invite)return;state.selectedInvite=id;state.inviteBox=invite.from==='Ты'?'outgoing':'incoming';state.page='invites';state.inviteView='detail';state.inviteReturn=origin;$('#kt-counter-form').hidden=true;closeEditor();commit();}
+  function respond(status){
+    const invite=selectedInvite();if(!invite||awaiting(invite)!=='Ты')return;
+    if(status==='accepted'&&invite.proposal){const proposal=invite.proposal;for(const key of ['date','endDate','start','end'])invite[key]=proposal[key];if(proposal.note)invite.description=proposal.note;invite.proposal=null;}
+    invite.status=status;invite.resolvedAt=Date.now();$('#kt-counter-form').hidden=true;commit();
+  }
+  function openCounter(){
+    const invite=selectedInvite();if(!invite||awaiting(invite)!=='Ты')return;
+    const proposal=invite.proposal||invite;
+    $('#kt-new-date').value=proposal.date||offset(state.weekStart,state.day);$('#kt-new-end-date').value=proposal.endDate||proposal.date||offset(state.weekStart,state.day);
+    $('#kt-new-time').value=proposal.start||'';$('#kt-new-end-time').value=proposal.end||'';$('#kt-new-note').value='';$('#kt-counter-error').hidden=true;
+    $('#kt-counter-form').hidden=false;$('#kt-response-actions').hidden=true;
+  }
+  function saveCounter(event){
+    event.preventDefault();const invite=selectedInvite();if(!invite||awaiting(invite)!=='Ты')return;
+    const date=$('#kt-new-date').value,last=invite.kind==='task'?date:$('#kt-new-end-date').value||date,start=$('#kt-new-time').value,end=$('#kt-new-end-time').value;
+    const error=validateSchedule(date,last,start,end,invite.kind);
+    if(error){$('#kt-counter-error').textContent=error;$('#kt-counter-error').hidden=false;return;}
+    invite.proposal={by:'Ты',date,endDate:last,start,end,note:$('#kt-new-note').value.trim()};invite.status='counter';$('#kt-counter-form').hidden=true;commit();
+  }
+  let ribbonRevision=0,scrollIntent=false,scrollTimer=null,drag=null;
+  const strip=$('#kt-board-columns'),ribbon=$('#kt-ribbon-position');
+  function columnStride(){const column=strip.querySelector('.kt-column');return column?column.getBoundingClientRect().width+14:0;}
+  function fitVisibleDays(){
+    if(state.page!=='board'||!strip.clientWidth)return;
+    const frame=strip.getBoundingClientRect();let height=0;
+    strip.querySelectorAll('.kt-column').forEach(column=>{
+      const box=column.getBoundingClientRect();
+      if(Math.min(box.right,frame.right)-Math.max(box.left,frame.left)>8)height=Math.max(height,box.height);
+    });
+    if(height)strip.style.height=Math.ceil(height+12)+'px';
+  }
+  function updateRibbon(){
+    fitVisibleDays();
+    const width=strip.clientWidth,stride=columnStride();if(!width||!stride)return;
+    const position=Math.max(0,Math.min(6,strip.scrollLeft/stride));
+    state.day=Math.round(position);ribbon.value=position;
+    ribbon.style.setProperty('--kt-scroll-thumb',Math.max(18,Math.min(width,width*width/(7*stride-14)))+'px');
+    ribbon.setAttribute('aria-valuetext',dayTitle(offset(state.weekStart,state.day)));
+  }
+  function scrollToDay(index,behavior='auto'){
+    state.day=Math.max(0,Math.min(6,index));ribbon.value=state.day;
+    const stride=columnStride();if(stride)strip.scrollTo({left:stride*state.day,behavior});
+    ribbon.setAttribute('aria-valuetext',dayTitle(offset(state.weekStart,state.day)));
+  }
+  function queueRibbonPosition(){
+    if(!globalThis.requestAnimationFrame)return;const revision=++ribbonRevision,anchor=state.day;
+    globalThis.requestAnimationFrame(()=>{if(revision!==ribbonRevision||state.page!=='board')return;scrollToDay(anchor);updateRibbon();});
+  }
+  strip.addEventListener('scroll',()=>{
+    updateRibbon();if(!scrollIntent)return;
+    clearTimeout(scrollTimer);scrollTimer=setTimeout(()=>{if(scrollIntent){persist();scrollIntent=false;}},180);
+  },{passive:true});
+  strip.addEventListener('touchstart',()=>{scrollIntent=true;},{passive:true});
+  strip.addEventListener('wheel',()=>{scrollIntent=true;},{passive:true});
+  ribbon.addEventListener('input',()=>{scrollIntent=true;strip.style.scrollSnapType='none';const stride=columnStride();if(stride)strip.scrollLeft=Number(ribbon.value)*stride;state.day=Math.round(Number(ribbon.value));});
+  ribbon.addEventListener('change',()=>{strip.style.scrollSnapType='';scrollToDay(Math.round(Number(ribbon.value)));persist();});
+  ribbon.addEventListener('keydown',event=>{
+    const directions={ArrowLeft:-1,ArrowRight:1};
+    if(event.key in directions){event.preventDefault();scrollToDay(state.day+directions[event.key]);persist();}
+    else if(event.key==='Home'||event.key==='End'){event.preventDefault();scrollToDay(event.key==='Home'?0:6);persist();}
+  });
+  strip.addEventListener('pointerdown',event=>{
+    if(event.pointerType!=='mouse'||event.button!==0||event.target.closest('button,input,select,textarea,a'))return;
+    scrollIntent=true;drag={x:event.clientX,left:strip.scrollLeft,pointer:event.pointerId};strip.setPointerCapture(event.pointerId);strip.style.scrollSnapType='none';strip.style.userSelect='none';strip.style.cursor='grabbing';event.preventDefault();
+  });
+  strip.addEventListener('pointermove',event=>{if(drag)strip.scrollLeft=drag.left+drag.x-event.clientX;});
+  function endDrag(){if(!drag)return;const stride=columnStride(),index=stride?Math.round(strip.scrollLeft/stride):state.day;drag=null;strip.style.scrollSnapType='';strip.style.userSelect='';strip.style.cursor='';scrollToDay(index);persist();}
+  strip.addEventListener('pointerup',endDrag);strip.addEventListener('pointercancel',endDrag);
+  let resizeObserver=null;
+  if(globalThis.ResizeObserver){let width=-1;resizeObserver=new ResizeObserver(()=>{if(strip.clientWidth!==width){width=strip.clientWidth;queueRibbonPosition();}});resizeObserver.observe(strip);}
+  root.querySelectorAll('[data-page]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
+  root.querySelectorAll('[data-invite-box]').forEach(button=>button.addEventListener('click',()=>{state.inviteBox=button.dataset.inviteBox;state.inviteView='overview';state.selectedInvite=null;$('#kt-counter-form').hidden=true;commit();}));
+  root.addEventListener('click',event=>{
+    const button=event.target.closest('button');if(!button||!root.contains(button))return;const data=button.dataset;
+    if(data.accessHelp)return;
+    if(data.ownerFilter){state[data.filterSurface+'Filter']=data.ownerFilter;commit();}
+    if(data.addDate)openEditor(data.addDate);
+    if(data.toggleDone)toggleDone(data.toggleDone);
+    if(data.event){const invite=state.invites.find(item=>item.id===data.event);if(invite)openInvitation(invite.id);else{const item=state.events.find(entry=>entry.id===data.event);if(item&&!item.readonly)openEditor(item.date,item);}}
+    if(data.theme){state.theme=data.theme;$('#kt-plan-form').hidden=true;commit();}
+    if(data.newTheme){$('#kt-theme-form').hidden=false;$('#kt-plan-form').hidden=true;$('#kt-theme-shared').checked=true;$('#kt-theme-name').focus();}
+    if(data.calendarDate){state.selectedDate=data.calendarDate;state.month=state.selectedDate.slice(0,7)+'-01';closeEditor();commit();}
+    if(data.rangeEvent){state.selectedDate=data.rangeDate;commit();}
+    if(data.list){state.selectedList=data.list;commit();}
+    if(data.invite)openInvitation(data.invite,data.inviteOrigin||'overview');
+  });
+  $('#kt-add-event').addEventListener('click',()=>openEditor(offset(state.weekStart,state.day)));
+  $('#kt-add-unscheduled').addEventListener('click',()=>openEditor('',null,{kind:'task'}));
+  $('#kt-calendar-add').addEventListener('click',()=>openEditor(state.selectedDate));
+  $('#kt-create-invite').addEventListener('click',()=>openEditor(offset(state.weekStart,state.day),null,{invite:true}));
+  $('#kt-event-cancel').addEventListener('click',closeEditor);
+  $('#kt-editor-close').addEventListener('click',closeEditor);
+  $('#kt-editor-dialog').addEventListener('cancel',event=>{event.preventDefault();closeEditor();});
+  $('#kt-event-form').addEventListener('submit',saveEvent);
+  $('#kt-event-shared').addEventListener('change',updateAccess);$('#kt-event-as-invite').addEventListener('change',updateAccess);
+  $('#kt-event-timed').addEventListener('change',updateSchedule);$('#kt-event-date').addEventListener('change',updateSchedule);
+  $('#kt-event-kind').addEventListener('change',()=>{$('#kt-event-timed').checked=$('#kt-event-kind').value==='event';updateSchedule();});
+  function changeWeek(amount){state.weekStart=offset(state.weekStart,amount*7);state.day=state.weekStart===monday(today)?(parseDate(today).getUTCDay()+6)%7:0;closeEditor();commit();}
+  function changeMonth(amount){const date=parseDate(state.month);date.setUTCMonth(date.getUTCMonth()+amount,1);state.month=iso(date);state.selectedDate=state.month;closeEditor();commit();}
+  $('#kt-week-prev').addEventListener('click',()=>changeWeek(-1));$('#kt-week-next').addEventListener('click',()=>changeWeek(1));
+  $('#kt-week-today').addEventListener('click',()=>{state.weekStart=monday(today);state.day=(parseDate(today).getUTCDay()+6)%7;commit();});
+  $('#kt-month-prev').addEventListener('click',()=>changeMonth(-1));$('#kt-month-next').addEventListener('click',()=>changeMonth(1));
+  $('#kt-month-today').addEventListener('click',()=>{state.month=today.slice(0,7)+'-01';state.selectedDate=today;commit();});
+  $('#kt-plan-add').addEventListener('click',()=>{$('#kt-plan-form').hidden=false;$('#kt-theme-form').hidden=true;const group=state.themes.find(item=>item.id===state.theme);$('#kt-plan-shared').checked=group.shared;$('#kt-plan-shared').disabled=!group.shared;$('#kt-plan-name').focus();});
+  $('#kt-theme-cancel').addEventListener('click',()=>$('#kt-theme-form').hidden=true);$('#kt-plan-cancel').addEventListener('click',()=>$('#kt-plan-form').hidden=true);
+  $('#kt-theme-form').addEventListener('submit',event=>{event.preventDefault();const name=$('#kt-theme-name').value.trim();if(!name)return;let theme=state.themes.find(item=>item.name===name);if(!theme){theme={id:uid('theme'),name,owner:'Ты',shared:$('#kt-theme-shared').checked,items:[]};state.themes.push(theme);}state.theme=theme.id;$('#kt-theme-form').hidden=true;$('#kt-theme-name').value='';commit();});
+  $('#kt-plan-form').addEventListener('submit',event=>{event.preventDefault();const title=$('#kt-plan-name').value.trim();if(!title)return;state.themes.find(item=>item.id===state.theme).items.push({title,owner:'Ты',shared:state.themes.find(item=>item.id===state.theme).shared&&$('#kt-plan-shared').checked});$('#kt-plan-form').hidden=true;$('#kt-plan-name').value='';commit();});
+  $('#kt-list-add').addEventListener('click',()=>{$('#kt-list-form').hidden=false;$('#kt-list-name').value='';$('#kt-list-shared').checked=true;$('#kt-list-editable').checked=true;$('#kt-list-editable').disabled=false;$('#kt-list-name').focus();});
+  $('#kt-list-cancel').addEventListener('click',()=>$('#kt-list-form').hidden=true);
+  $('#kt-list-shared').addEventListener('change',()=>{$('#kt-list-editable').disabled=!$('#kt-list-shared').checked;if(!$('#kt-list-shared').checked)$('#kt-list-editable').checked=false;});
+  $('#kt-list-form').addEventListener('submit',event=>{event.preventDefault();const name=$('#kt-list-name').value.trim();if(!name)return;const list={id:uid('list'),name,owner:'Ты',shared:$('#kt-list-shared').checked,editable:$('#kt-list-shared').checked&&$('#kt-list-editable').checked,items:[]};state.lists.push(list);state.selectedList=list.id;$('#kt-list-form').hidden=true;commit();});
+  $('#kt-list-item-form').addEventListener('submit',event=>{event.preventDefault();const title=$('#kt-list-item-name').value.trim(),list=state.lists.find(item=>item.id===state.selectedList);if(!title||!list)return;list.items.push(title);$('#kt-list-item-name').value='';commit();});
+  $('#kt-open-archive').addEventListener('click',()=>{state.inviteView='archive';state.selectedInvite=null;$('#kt-counter-form').hidden=true;commit();});
+  $('#kt-archive-back').addEventListener('click',()=>{state.inviteView='overview';state.selectedInvite=null;commit();});
+  $('#kt-invite-back').addEventListener('click',()=>{state.inviteView=state.inviteReturn==='archive'?'archive':'overview';state.selectedInvite=null;$('#kt-counter-form').hidden=true;commit();});
+  $('#kt-settings-form').addEventListener('submit',event=>{
+    event.preventDefault();const retention=Number($('#kt-setting-retention').value);if(!Number.isInteger(retention)||retention<1||retention>365){$('#kt-settings-saved').textContent='Укажи от 1 до 365 дней';return;}state.settings={theme:$('#kt-setting-theme').value,lockMinutes:$('#kt-setting-lock').value,password:$('#kt-setting-password').value==='yes',biometric:$('#kt-setting-biometric').value==='yes',retentionDays:retention};
+    for(const key of ['reminders','assignments','changes','invites'])state.settings[key]=$('#kt-setting-'+key).checked;
+    commit();$('#kt-settings-saved').textContent='Настройки сохранены';
+  });
+  root.querySelectorAll('[data-response]').forEach(button=>button.addEventListener('click',()=>respond(button.dataset.response)));
+  $('#kt-counter-open').addEventListener('click',openCounter);$('#kt-counter-cancel').addEventListener('click',()=>{$('#kt-counter-form').hidden=true;render();});$('#kt-counter-form').addEventListener('submit',saveCounter);
+  globalThis.addEventListener('openai:set_globals',event=>{const next=event.detail?.globals?.widgetState?.privateContent?.sharedOrganizer;if(next?.version===5||next?.version===6){state=restore(next);normalizeAccess();$('#kt-counter-form').hidden=true;closeEditor();render();}});
+  if(globalThis.setInterval){const timer=setInterval(()=>{if(!root.isConnected){clearInterval(timer);resizeObserver?.disconnect();}else if(state.page==='invites')renderInvites();},60000);}
+  render();
+})();
+
+</script>
+</div>
