@@ -1,0 +1,4 @@
+<resources><style name="Theme.Kotiki" parent="android:style/Theme.Material.Light.NoActionBar">
+<item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">true</item><item name="android:windowActionModeOverlay">true</item><item name="android:windowSoftInputMode">adjustResize</item>
+<item name="android:windowSplashScreenBackground">#FAF7F3</item><item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+</style></resources>

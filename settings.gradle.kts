@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "KotikiTeam"
 include(":app")
+project(":app").projectDir = file("android/app")

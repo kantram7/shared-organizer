@@ -3,7 +3,7 @@
 .kotlin/
 **/build/
 .local/
-tools/
+/tools/
 local.properties
 build.local.json
 private/
@@ -51,3 +51,11 @@ service-account*.json
 *.aab
 *.apks
 *.log
+
+# Local test identities, fixtures, captures and per-device configuration
+/testing/local/
+local-test-preset.json
+
+# Python helper caches
+__pycache__/
+*.pyc

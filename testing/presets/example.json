@@ -1,0 +1,156 @@
+{
+  "id": "example-v1",
+  "defaultUser": "USER_1",
+  "names": {
+    "USER_1": "Пользователь 1",
+    "USER_2": "Пользователь 2"
+  },
+  "theme": "light",
+  "retentionDays": 7,
+  "entries": [
+    {
+      "id": "local-coffee",
+      "title": "Заказать кофе",
+      "dayOffset": 0,
+      "who": "USER_1"
+    },
+    {
+      "id": "local-user2-task",
+      "title": "Выбрать книгу",
+      "dayOffset": 0,
+      "who": "USER_2",
+      "owner": "USER_2"
+    },
+    {
+      "id": "local-movie",
+      "title": "Выбрать фильм на вечер",
+      "dayOffset": 0
+    },
+    {
+      "id": "local-gift",
+      "title": "Идея подарка",
+      "dayOffset": 0,
+      "who": "USER_1",
+      "visibility": "PRIVATE"
+    },
+    {
+      "id": "local-private-2",
+      "title": "Личная заметка",
+      "dayOffset": 0,
+      "who": "USER_2",
+      "owner": "USER_2",
+      "visibility": "PRIVATE"
+    },
+    {
+      "id": "local-walk",
+      "title": "Прогулка вдвоём",
+      "dayOffset": 0,
+      "start": "19:00",
+      "end": "20:00",
+      "kind": "EVENT"
+    },
+    {
+      "id": "local-busy",
+      "title": "Врач — пример занятости",
+      "dayOffset": 1,
+      "start": "15:00",
+      "end": "16:00",
+      "kind": "EVENT",
+      "who": "USER_2",
+      "owner": "USER_2",
+      "visibility": "BUSY",
+      "editable": false
+    },
+    {
+      "id": "local-week",
+      "title": "Выбрать место на выходные",
+      "dayOffset": null
+    },
+    {
+      "id": "local-trip",
+      "title": "Поездка за город",
+      "dayOffset": 3,
+      "durationDays": 2,
+      "kind": "EVENT"
+    },
+    {
+      "id": "local-invite",
+      "title": "Выставка и кофе",
+      "dayOffset": 2,
+      "start": "18:00",
+      "end": "20:00",
+      "kind": "EVENT",
+      "owner": "USER_2",
+      "invite": "PENDING"
+    }
+  ],
+  "plans": [
+    {
+      "id": "local-weekends",
+      "name": "Выходные",
+      "items": [
+        "Выбрать прогулку",
+        "Найти уютное кафе"
+      ]
+    },
+    {
+      "id": "local-travel",
+      "name": "Путешествия",
+      "items": [
+        "Обсудить маршрут"
+      ]
+    },
+    {
+      "id": "local-plans-1",
+      "name": "Личные идеи",
+      "shared": false,
+      "items": [
+        "Личный план"
+      ]
+    },
+    {
+      "id": "local-plans-2",
+      "name": "Личные идеи",
+      "shared": false,
+      "owner": "USER_2",
+      "items": [
+        "Личный план"
+      ]
+    }
+  ],
+  "lists": [
+    {
+      "id": "local-shopping",
+      "name": "Покупки",
+      "items": [
+        "Кофе",
+        "Молоко"
+      ]
+    },
+    {
+      "id": "local-places",
+      "name": "Места посетить",
+      "items": [
+        "Новое кафе",
+        "Выставка"
+      ]
+    },
+    {
+      "id": "local-list-1",
+      "name": "Личный список",
+      "shared": false,
+      "items": [
+        "Личная идея"
+      ]
+    },
+    {
+      "id": "local-list-2",
+      "name": "Личный список",
+      "shared": false,
+      "owner": "USER_2",
+      "items": [
+        "Личная идея"
+      ]
+    }
+  ]
+}

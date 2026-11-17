@@ -1,0 +1,158 @@
+{
+  "revision": "collection-gallery-014",
+  "plans": [
+    {
+      "id": "preview-plans-1",
+      "name": "Дом",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Обновить рабочее место",
+        "Разобрать балкон"
+      ]
+    },
+    {
+      "id": "preview-plans-2",
+      "name": "Обучение",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Выбрать курс",
+        "Попробовать новый язык"
+      ]
+    },
+    {
+      "id": "preview-plans-3",
+      "name": "Здоровье",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Запланировать прогулки",
+        "Найти спортивное занятие"
+      ]
+    },
+    {
+      "id": "preview-plans-4",
+      "name": "Культура",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Выбрать спектакль",
+        "Сходить на выставку"
+      ]
+    },
+    {
+      "id": "preview-plans-5",
+      "name": "Творчество",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Сделать фотокнигу",
+        "Нарисовать открытку"
+      ]
+    },
+    {
+      "id": "preview-plans-6",
+      "name": "Встречи",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Собрать друзей",
+        "Устроить вечер настолок"
+      ]
+    },
+    {
+      "id": "preview-plans-7",
+      "name": "Отпуск",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Наметить даты",
+        "Сравнить маршруты"
+      ]
+    },
+    {
+      "id": "preview-plans-8",
+      "name": "Маленькие радости",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Встретить рассвет",
+        "Испечь пирог"
+      ]
+    }
+  ],
+  "lists": [
+    {
+      "id": "preview-lists-1",
+      "name": "Книги",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Роман для отпуска",
+        "Книга о путешествиях"
+      ]
+    },
+    {
+      "id": "preview-lists-2",
+      "name": "Фильмы",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Комедия на вечер",
+        "Документальный фильм"
+      ]
+    },
+    {
+      "id": "preview-lists-3",
+      "name": "Для дома",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Лампа",
+        "Коробки для хранения"
+      ]
+    },
+    {
+      "id": "preview-lists-4",
+      "name": "В дорогу",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Зарядка",
+        "Наушники",
+        "Бутылка воды"
+      ]
+    },
+    {
+      "id": "preview-lists-5",
+      "name": "Подарки",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Открытка",
+        "Подарочный пакет"
+      ]
+    },
+    {
+      "id": "preview-lists-6",
+      "name": "Рецепты",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Лимонный пирог",
+        "Домашняя паста"
+      ]
+    },
+    {
+      "id": "preview-lists-7",
+      "name": "Идеи для вечера",
+      "shared": true,
+      "owner": "USER_1",
+      "items": [
+        "Настольная игра",
+        "Прогулка у воды"
+      ]
+    }
+  ]
+}
