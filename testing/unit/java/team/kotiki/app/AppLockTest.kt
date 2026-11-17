@@ -32,11 +32,27 @@ class AppLockTest {
     @Test fun resetElapsedClockCannotSkipDelay(){
         assertEquals(30_000L,PinPolicy.remaining(5,100_000,50_000,101_000,10))
     }
-    @Test fun timeoutBoundaryLocksAndUnrelatedStartDoesNot(){
-        assertFalse(PinPolicy.needsLock(0,-1,100))
-        assertTrue(PinPolicy.needsLock(0,100,100))
-        assertFalse(PinPolicy.needsLock(1,100,60_099))
-        assertTrue(PinPolicy.needsLock(1,100,60_100))
-        assertTrue(PinPolicy.needsLock(15,100,99))
+    private class SessionState(var unlocked:Boolean=false)
+    @Test fun sessionSurvivesBackgroundAndActivityRecreation(){
+        val registry=ProcessSession<SessionState>{it.unlocked=false}
+        val state=registry.get("user-one"){SessionState()};state.unlocked=true
+        registry.retainFor("user-one")
+        assertSame(state,registry.get("user-one"){SessionState()})
+        assertTrue(state.unlocked)
+    }
+    @Test fun explicitCloseAndAccountSwitchRequireNewVerification(){
+        val registry=ProcessSession<SessionState>{it.unlocked=false}
+        val first=registry.get("one"){SessionState(true)}
+        assertFalse(registry.get("two"){SessionState()}.unlocked)
+        assertFalse(first.unlocked)
+        registry.get("two"){SessionState()}.unlocked=true
+        registry.clear()
+        assertFalse(registry.get("two"){SessionState()}.unlocked)
+    }
+    @Test fun aNewProcessCannotRestoreAnUnlockedSession(){
+        val old=ProcessSession<SessionState>{it.unlocked=false}
+        old.get("one"){SessionState()}.unlocked=true
+        val new=ProcessSession<SessionState>{it.unlocked=false}
+        assertFalse(new.get("one"){SessionState()}.unlocked)
     }
 }

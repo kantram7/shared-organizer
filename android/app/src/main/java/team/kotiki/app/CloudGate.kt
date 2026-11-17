@@ -46,7 +46,7 @@ val LocalCloudMode=staticCompositionLocalOf{false}
     var accessMessage by remember{mutableStateOf("Проверяем доступ…")}
     var retry by remember{mutableIntStateOf(0)}
     DisposableEffect(auth){
-        val listener=FirebaseAuth.AuthStateListener{user=it.currentUser}
+        val listener=FirebaseAuth.AuthStateListener{AppLockSessions.retainFor(it.currentUser?.uid);user=it.currentUser}
         auth.addAuthStateListener(listener)
         onDispose{auth.removeAuthStateListener(listener)}
     }

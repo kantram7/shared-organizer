@@ -63,7 +63,6 @@ internal object PinPolicy {
         val spent=if(nowElapsed>=elapsed)nowElapsed-elapsed else 0L
         return (duration-spent).coerceAtLeast(0)
     }
-    fun needsLock(timeoutMinutes:Int,awaySince:Long,now:Long)=awaySince>=0 && (now<awaySince || now-awaySince>=timeoutMinutes*60_000L)
 }
 
 private fun ByteArray.encoded()=Base64.encodeToString(this,Base64.NO_WRAP)
@@ -81,7 +80,6 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
     private var state=JSONObject()
     private val boot get()=Settings.Global.getInt(app.contentResolver,Settings.Global.BOOT_COUNT,0)
     private var grantAt=-1L
-    private var awaySince=-1L
     private var prompt:CancellationSignal?=null
     var revision by mutableIntStateOf(0);private set
     var unlocked by mutableStateOf(false);private set
@@ -90,7 +88,6 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
     val initialized get()=state.optBoolean("initialized")
     val enabled get()=state.optBoolean("enabled")
     val biometric get()=state.optBoolean("biometric")
-    val timeoutMinutes get()=state.optInt("timeout",0)
 
     init {
         try {
@@ -154,11 +151,10 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
         catch(_:Exception){damaged=true;unlocked=false;"Не удалось проверить PIN. Восстанови доступ через аккаунт."}
         finally {busy=false}
     }
-    suspend fun configure(pin:String,confirmation:String,enable:Boolean,timeout:Int):String? {
+    suspend fun configure(pin:String,confirmation:String,enable:Boolean):String? {
         if(busy)return "Подожди завершения проверки"
         if(damaged)return "Сначала восстанови доступ через аккаунт"
         if(enable && (!PinPolicy.valid(pin) || pin!=confirmation))return "Введи два одинаковых PIN из 6 цифр"
-        if(timeout !in listOf(0,1,5,15))return "Выбери время блокировки"
         if(initialized && enabled)try{requireGrant()}catch(_:Exception){return "Подтверди текущий PIN ещё раз"}
         busy=true
         return try {
@@ -167,17 +163,17 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
                 val hash=withContext(Dispatchers.Default){PinPolicy.derive(pin.toCharArray(),salt)}
                 state.put("salt",salt.encoded()).put("verifier",hash.encoded());hash.fill(0)
             }else {state.remove("salt");state.remove("verifier")}
-            state.put("initialized",true).put("enabled",enable).put("biometric",false).put("timeout",timeout).put("failures",0)
+            state.put("initialized",true).put("enabled",enable).put("biometric",false).put("failures",0)
             persist();keys.deleteEntry(bioAlias);authorize();null
         } catch(cancelled:CancellationException){unlocked=false;throw cancelled}
         catch(_:Exception){unlocked=false;damaged=true;"Не удалось сохранить защиту. Восстанови доступ через аккаунт."}
         finally{busy=false}
     }
-    fun changeOptions(useBiometric:Boolean,timeout:Int):String?=try {
-        requireGrant();require(timeout in listOf(0,1,5,15))
+    fun changeOptions(useBiometric:Boolean):String?=try {
+        requireGrant()
         require(!useBiometric || enabled)
         if(!useBiometric){state.put("biometric",false);keys.deleteEntry(bioAlias)}
-        state.put("timeout",timeout);persist();null
+        persist();null
     }catch(_:Exception){"Подтверди текущий PIN ещё раз"}
 
     fun authenticateBiometric(context:Context,enroll:Boolean=false,onResult:(String?)->Unit) {
@@ -189,9 +185,11 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
             if(enroll)keys.deleteEntry(bioAlias)
             val cipher=Cipher.getInstance("AES/GCM/NoPadding").apply{init(Cipher.ENCRYPT_MODE,key(bioAlias,true))}
             val signal=CancellationSignal();prompt=signal
-            val dialog=BiometricPrompt.Builder(activity).setTitle("Войти в Kotiki team")
+            val builder=BiometricPrompt.Builder(activity).setTitle("Войти в Kotiki team")
                 .setSubtitle(if(enroll)"Подтверди включение биометрии" else "Подтверди вход по биометрии")
-                .setNegativeButton("Ввести PIN",activity.mainExecutor){_,_->onResult(null)}.build()
+                .setNegativeButton("Ввести PIN",activity.mainExecutor){_,_->prompt=null;onResult(null)}
+            if(Build.VERSION.SDK_INT>=30)builder.setAllowedAuthenticators(android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            val dialog=builder.build()
             dialog.authenticate(BiometricPrompt.CryptoObject(cipher),signal,activity.mainExecutor,object:BiometricPrompt.AuthenticationCallback(){
                 override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult){
                     try {
@@ -207,9 +205,9 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
             })
         }catch(_:Exception){onResult("Биометрия недоступна или изменилась. Используй PIN.")}
     }
-    fun stopped(){awaySince=SystemClock.elapsedRealtime();grantAt=-1;prompt?.cancel();if(enabled && timeoutMinutes==0)unlocked=false}
-    fun started(){if(enabled && PinPolicy.needsLock(timeoutMinutes,awaySince,SystemClock.elapsedRealtime()))unlocked=false;awaySince=-1}
-    fun close(){prompt?.cancel();grantAt=-1;unlocked=false}
+    // Backgrounding ends the short settings grant, not the authenticated app session.
+    fun stopped(){grantAt=-1;prompt?.cancel();prompt=null}
+    fun close(){stopped();unlocked=false}
     fun recover(password:String,onResult:(String?)->Unit) {
         if(busy)return
         val user=FirebaseAuth.getInstance().currentUser
@@ -233,18 +231,18 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
 
 @Composable fun LockGate(authUid:String,content:@Composable ()->Unit) {
     val context=LocalContext.current
-    val lock=remember(authUid){AppLockController(context,authUid)}
+    val lock=remember(authUid){AppLockSessions.get(context,authUid)}
     val screenState=rememberSaveableStateHolder()
     val owner=context.activity() as? androidx.lifecycle.LifecycleOwner
     var foreground by remember {mutableStateOf(true)}
     DisposableEffect(lock,owner){
         val observer=LifecycleEventObserver{_,event->when(event){
             Lifecycle.Event.ON_STOP->{foreground=false;lock.stopped()}
-            Lifecycle.Event.ON_START->{lock.started();foreground=true}
+            Lifecycle.Event.ON_START->{foreground=true}
             else->Unit
         }}
         owner?.lifecycle?.addObserver(observer)
-        onDispose{owner?.lifecycle?.removeObserver(observer);lock.close();context.activity()?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)}
+        onDispose{owner?.lifecycle?.removeObserver(observer);lock.stopped();context.activity()?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)}
     }
     lock.revision
     val secureScreen=!foreground || lock.damaged || !lock.initialized || lock.enabled && !lock.unlocked
@@ -300,7 +298,7 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
     val context=LocalContext.current;val scope=rememberCoroutineScope()
     var pin by remember{mutableStateOf("")};var confirm by remember{mutableStateOf("")}
     var enabled by remember{mutableStateOf(true)};var bio by remember{mutableStateOf(true)}
-    var timeout by remember{mutableIntStateOf(lock.timeoutMinutes)};var error by remember{mutableStateOf<String?>(null)}
+    var error by remember{mutableStateOf<String?>(null)}
     Column(Modifier.fillMaxWidth().imePadding().then(if(embedded)Modifier else Modifier.verticalScroll(rememberScrollState())).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         Text(if(lock.initialized)"Изменить PIN" else "Защити наше пространство",style=MaterialTheme.typography.titleLarge)
         Text("PIN хранится только на этом устройстве. Это отдельный код, не пароль облачного аккаунта.")
@@ -308,13 +306,12 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
         if(enabled){
             PinInput(pin,{pin=it},"Новый PIN: 6 цифр");PinInput(confirm,{confirm=it},"Повтори PIN")
             Row{Checkbox(bio,{bio=it});Text("Вход по биометрии")}
-            LockTimeout(timeout){timeout=it}
         }
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         Button(enabled=!lock.busy && (!enabled || PinPolicy.valid(pin) && pin==confirm),onClick={
             val first=pin;val second=confirm;pin="";confirm=""
             scope.launch {
-                error=lock.configure(first,second,enabled,timeout)
+                error=lock.configure(first,second,enabled)
                 if(error==null){
                     if(enabled && bio)lock.authenticateBiometric(context,true){error=it;onDone?.invoke()}
                     else onDone?.invoke()
@@ -323,13 +320,6 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
         },modifier=Modifier.fillMaxWidth()){Text(if(enabled)"Сохранить PIN" else "Продолжить без PIN")}
     }
 }
-@Composable private fun LockTimeout(value:Int,onChange:(Int)->Unit){
-    Text("Блокировать после сворачивания",style=MaterialTheme.typography.labelLarge)
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){
-        listOf(0,1,5,15).forEach{minutes->FilterChip(value==minutes,{onChange(minutes)},label={Text(if(minutes==0)"Сразу" else "$minutes мин")})}
-    }
-}
-
 @Composable fun AppLockSettings(authUid:String){
     val lock=LocalAppLock.current
     if(lock==null || lock.authUid!=authUid){Text("Защита доступна после облачного входа");return}
@@ -343,7 +333,7 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
         Text("Защита приложения",style=MaterialTheme.typography.titleMedium)
         Text("PIN: ${if(lock.enabled)"включён" else "выключен"} · Биометрия: ${if(lock.biometric)"включена" else "выключена"}")
-        Text("Блокировка: ${if(lock.timeoutMinutes==0)"сразу" else "через ${lock.timeoutMinutes} мин"}")
+        Text("Повторный вход — только после полного закрытия приложения. Сворачивание не блокирует его.")
         OutlinedButton(onClick={edit=true;verified=!lock.enabled;error=null;pin=""}){Text("Настроить защиту")}
     }
     if(edit)AlertDialog(properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),onDismissRequest={if(!lock.busy)edit=false},title={Text("Настройки защиты")},text={
@@ -354,12 +344,11 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
                 Button(enabled=!lock.busy && PinPolicy.valid(pin),onClick={val attempt=pin;pin="";scope.launch{error=lock.verify(attempt);if(error==null)verified=true}}){Text("Подтвердить PIN")}
             }else{
                 if(lock.enabled){
-                    LockTimeout(lock.timeoutMinutes){error=lock.changeOptions(lock.biometric,it)}
                     Row{
-                        Checkbox(lock.biometric,{checked->if(checked)lock.authenticateBiometric(context,true){error=it} else error=lock.changeOptions(false,lock.timeoutMinutes)})
+                        Checkbox(lock.biometric,{checked->if(checked)lock.authenticateBiometric(context,true){error=it} else error=lock.changeOptions(false)})
                         Text("Вход по биометрии")
                     }
-                    TextButton(onClick={scope.launch{error=lock.configure("","",false,lock.timeoutMinutes);if(error==null)edit=false}}){Text("Выключить PIN и биометрию")}
+                    TextButton(onClick={scope.launch{error=lock.configure("","",false);if(error==null)edit=false}}){Text("Выключить PIN и биометрию")}
                 }
                 LockSetup(lock,embedded=true){edit=false}
             }

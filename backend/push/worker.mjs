@@ -213,7 +213,7 @@ export async function deliver(env, dependencies = {}) {
           if (chatNotice && ownDevice) continue;
           const notice = record ? (ownDevice ? refreshNotice() : notificationFor(record, space.roles?.[device.canonicalUid])) : chatNotice;
           if (!notice) continue;
-          const data = { ...notice, eventId: event.id, spaceId: env.SPACE_ID, recordId, chatId, collectionId, itemId, authUid: device.authUid, gathering: record?.data?.isGathering ? "true" : "false" };
+          const data = { ...notice, eventId: event.id, createdAt: event.createdAt, spaceId: env.SPACE_ID, recordId, chatId, collectionId, itemId, authUid: device.authUid, gathering: record?.data?.isGathering ? "true" : "false" };
           const result = await send(device.token, data);
           if (result === 'unregistered') await db.remove(root + '/devices/' + device.id);
           else if (result !== 'sent') failed = true;

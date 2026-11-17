@@ -21,8 +21,8 @@ android {
         applicationId = "team.kotiki.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.3.0"
+        versionCode = 10
+        versionName = "0.3.1"
         buildConfigField("boolean", "AGENT_TEST", "false")
         resValue("string", "app_name", "Kotiki team")
     }
@@ -77,7 +77,11 @@ android {
                 }
             }
         }
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            // Keep the explicitly configured private signing certificate for in-place APK updates.
+            if (!System.getenv("KOTIKI_DEBUG_KEYSTORE").isNullOrBlank()) signingConfig = signingConfigs.getByName("debug")
+        }
     }
 }
 dependencies {

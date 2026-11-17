@@ -39,6 +39,7 @@ object GatheringNotifications {
     fun createChannel(context:Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL,"Приглашения на общий сбор",NotificationManager.IMPORTANCE_DEFAULT).apply {
+                setShowBadge(true)
                 description="Приглашения на совместные встречи, ожидающие ответа"
             })
     }

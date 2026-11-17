@@ -37,6 +37,8 @@ import java.time.LocalDate
     var planChat by rememberSaveable {mutableStateOf<ChatTarget?>(null)}
     var history by remember {mutableStateOf<List<String>?>(null)}
     var help by rememberSaveable {mutableStateOf<String?>(null)}
+    val viewedEntry=detail ?: editor?.takeIf{candidate->store.entries.any{it.id==candidate.id}}
+    NotificationReadEffect(store.cloudSession?.authUid,viewedEntry?.let{NotificationReadState.entry(it.id)})
     val pages=rememberSaveableStateHolder()
     val colors=MaterialTheme.colorScheme
     val adaptive=LocalConfiguration.current.fontScale>=1.3f

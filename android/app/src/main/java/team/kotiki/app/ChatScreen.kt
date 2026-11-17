@@ -31,6 +31,7 @@ import java.util.Locale
         return
     }
     key(chats.session.uid,chats.session.spaceId,target.id) {
+        NotificationReadEffect(chats.session.authUid,NotificationReadState.chat(target.id))
         val context=LocalContext.current
         val prefs=remember{context.getSharedPreferences("chat_drafts_${chats.session.uid}",0)}
         val draftKey="${chats.session.spaceId}/${target.id}"

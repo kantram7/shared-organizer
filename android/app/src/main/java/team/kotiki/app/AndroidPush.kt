@@ -158,7 +158,7 @@ object AndroidPush {
     private fun createChannel(context:Context){
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL,"Чаты и совместные планы",NotificationManager.IMPORTANCE_DEFAULT).apply{
-                description="Приглашения, ответы и изменения общих записей";lockscreenVisibility=NotificationCompat.VISIBILITY_PRIVATE
+                setShowBadge(true);description="Приглашения, ответы и изменения общих записей";lockscreenVisibility=NotificationCompat.VISIBILITY_PRIVATE
             })
     }
     @Synchronized internal fun receive(context:Context,data:Map<String,String>){
@@ -167,6 +167,8 @@ object AndroidPush {
         val notice=PushPolicy.parse(data,profile.authUid,profile.spaceId) ?: return
         if(notice.recordId.isNotEmpty())refreshReminders(context)
         if(notice.kind=="refresh")return
+        val route=if(notice.kind=="chat")NotificationReadState.chat(notice.chatId) else NotificationReadState.entry(notice.recordId.removePrefix("entry_"))
+        if(!NotificationReadState.shouldPost(context,notice.authUid,route,data["createdAt"]))return
         val seen=runCatching{JSONArray(prefs(context).getString("seen","[]"))}.getOrDefault(JSONArray())
         val key=notice.authUid+":"+notice.eventId
         if((0 until seen.length()).any{seen.optString(it)==key})return
@@ -189,6 +191,7 @@ object AndroidPush {
             .setContentTitle("Kotiki team").setContentText("Есть обновления. Открой приложение.").build()
         val notification=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_meeting)
             .setContentTitle(title).setContentText(body).setContentIntent(pending).setAutoCancel(true)
+            .setNumber(1).setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL).addExtras(NotificationReadState.extras(notice.authUid,route))
             .setCategory(if(notice.kind=="chat")NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_EVENT)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
         if(!active(context,profile))return

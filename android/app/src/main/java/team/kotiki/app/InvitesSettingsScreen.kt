@@ -100,6 +100,7 @@ import java.time.temporal.ChronoUnit
         if(message.isNotEmpty())Text(message,style=MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("Kotiki team ${BuildConfig.VERSION_NAME}",style=MaterialTheme.typography.labelMedium)
+        Text("Издатель: Kantram",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(if(store.cloudSession!=null)"Записи синхронизируются с Firebase. Копии во внешних календарях обновляются по кнопке в записи." else "Демонстрационные записи сохраняются локально. Облачного обмена и подключения календарей пока нет.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
     }

@@ -18,6 +18,10 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         notificationTarget=GatheringNotifications.target(intent)
     }
+    override fun onDestroy() {
+        if(isFinishing)AppLockSessions.clear()
+        super.onDestroy()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if(savedInstanceState==null)notificationTarget=GatheringNotifications.target(intent)

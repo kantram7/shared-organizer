@@ -71,7 +71,7 @@ test('record change refreshes author devices and notifies other participant with
   assert.equal(state.sent.find(x => x.data.authUid === 'u1').data.kind, 'refresh');
   const other = state.sent.find(x => x.data.authUid === 'u2').data;
   assert.equal(other.kind, 'event'); assert.equal(other.recordId, 'entry_entry1'); assert.equal(other.itemId, ''); assert.equal(other.collectionId, ''); assert.equal(other.chatId, '');
-  assert.equal(other.eventId, 'revision1'); assert.ok(!JSON.stringify(other).includes('Private title'));
+  assert.equal(other.createdAt, new Date(NOW).toISOString()); assert.equal(other.eventId, 'revision1'); assert.ok(!JSON.stringify(other).includes('Private title'));
   assert.deepEqual(state.removed, [root + '/pushQueue/revision1']);
 });
 test('batched reads preserve recipient checks and stop safely on provider failure', async () => {

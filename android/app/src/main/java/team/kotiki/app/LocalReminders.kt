@@ -79,7 +79,7 @@ object LocalReminders {
     }
     fun canScheduleExact(context: Context): Boolean = Build.VERSION.SDK_INT < 31 || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     fun createChannel(context: Context) {
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Напоминания о делах и событиях",NotificationManager.IMPORTANCE_DEFAULT))
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Напоминания о делах и событиях",NotificationManager.IMPORTANCE_DEFAULT).apply{setShowBadge(true)})
     }
     /** Call after every cloud/local snapshot and preference change. Proposals must pass the still-accepted event until confirmation. */
     fun sync(context: Context, authUid: String, entries: List<Entry>, viewer: Person) = synchronized(lock) {
@@ -164,7 +164,8 @@ object LocalReminders {
         return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_calendar).setContentTitle(entry.title)
             .setContentText(entry.date?.let(::fullDayLabel).orEmpty() + if(entry.start.isNotBlank()) " · ${entry.start}" else "")
             .setCategory(NotificationCompat.CATEGORY_REMINDER).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(public).setContentIntent(pending).setAutoCancel(true).build()
+            .setPublicVersion(public).setContentIntent(pending).setAutoCancel(true)
+            .setNumber(1).addExtras(NotificationReadState.extras(uid,NotificationReadState.entry(entry.id))).build()
     }
     private fun encode(entry: Entry) = JSONObject().put("id",entry.id).put("title",entry.title).put("date",entry.date.toString())
         .put("start",entry.start).put("end",entry.end).put("who",entry.who.name).put("owner",entry.owner.name)
