@@ -10,18 +10,18 @@ import org.json.JSONObject
 import java.time.LocalDate
 import java.util.UUID
 
-/** Local demonstration store. It deliberately has no account or network access. */
-class DemoStore(context: Context, selectedUser: Person? = null) {
-    val preset = LocalTestPreset.load(context)
-    val viewer = preset?.let { fixture ->
+/** UI store: isolated local demo or authenticated cloud-backed content. */
+class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession:CloudSession?=null) {
+    val preset = if(cloudSession==null)LocalTestPreset.load(context) else null
+    val viewer = cloudSession?.viewer ?: preset?.let { fixture ->
         selectedUser?.also { require(it != Person.BOTH) } ?: runCatching {
             Person.valueOf(context.getSharedPreferences("local_test_profiles", Context.MODE_PRIVATE)
                 .getString("selected", fixture.defaultUser.name)!!).also { require(it != Person.BOTH) }
         }.getOrDefault(fixture.defaultUser)
     } ?: Person.USER_1
-    val identity = DemoIdentity(viewer, preset?.names ?: emptyMap(), preset != null)
+    val identity = cloudSession?.identity ?: DemoIdentity(viewer, preset?.names ?: emptyMap(), preset != null)
     private val prefs = context.getSharedPreferences(
-        preset?.let { "local_preset_${it.id}_${viewer.name}" } ?: "kotiki_demo_v1", Context.MODE_PRIVATE)
+        cloudSession?.let { "cloud_${it.authUid}" } ?: preset?.let { "local_preset_${it.id}_${viewer.name}" } ?: "kotiki_demo_v1", Context.MODE_PRIVATE)
     private val roleAliases: Map<String, String> = runCatching {
         val json = context.assets.open("legacy-roles.json").bufferedReader().use { JSONObject(it.readText()) }
         json.keys().asSequence().associateWith { json.getString(it) }
@@ -40,15 +40,31 @@ class DemoStore(context: Context, selectedUser: Person? = null) {
     var storageWarning by mutableStateOf(false)
         private set
 
+    var cloudStatus by mutableStateOf("Подключаемся…")
+    var cloudError by mutableStateOf("")
+    var cloudPending by mutableStateOf(false)
+    var chatPending by mutableStateOf(false)
+    fun preparePlanChat(){save()}
+    var cloudReady by mutableStateOf(false)
+    var onCloudSave:((StoreContent)->Unit)?=null
+    var cloudHistory:((String,(List<String>)->Unit)->Unit)?=null
+    fun receiveCloud(content:StoreContent) {
+        entries.clear();entries.addAll(content.entries)
+        plans.clear();plans.addAll(content.plans)
+        lists.clear();lists.addAll(content.lists)
+    }
+    fun keepFailedCloudChange(record:CloudRecord) {
+        prefs.edit().putString("failed_${record.id}",JSONObject(record.data).toString()).apply()
+    }
     init {
-        val data = prefs.getString("content", null)
+        val data = if(cloudSession==null)prefs.getString("content", null) else null
         val loaded = data != null && runCatching {
             val json = JSONObject(data)
             entries.addAll(json.getJSONArray("entries").objects().map { readEntry(it, roleAliases) })
             plans.addAll(json.getJSONArray("plans").objects().map(::readCollection))
             lists.addAll(json.getJSONArray("lists").objects().map(::readCollection))
         }.isSuccess
-        if (!loaded) {
+        if (!loaded && cloudSession==null) {
             storageWarning = data != null
             entries.clear(); plans.clear(); lists.clear()
             entries.addAll(preset?.entries(LocalDate.now()) ?: demoEntries(LocalDate.now()))
@@ -77,7 +93,7 @@ class DemoStore(context: Context, selectedUser: Person? = null) {
     fun updateBoardOverview(value: Boolean) { boardOverview=value; prefs.edit().putBoolean("boardOverview",value).apply() }
     fun dismissUndo(action: UndoAction) { if(undoAction === action) undoAction=null }
     fun restore(action: UndoAction) { action.restore(); dismissUndo(action); save() }
-    fun canDelete(entry: Entry): Boolean = entry.visibleTo(viewer) && (entry.owner==viewer || (entry.visibility==Visibility.SHARED && entry.editable))
+    fun canDelete(entry: Entry): Boolean = (cloudSession==null || entry.invite==InviteState.NONE || entry.owner==viewer) && entry.visibleTo(viewer) && (entry.owner==viewer || (entry.visibility==Visibility.SHARED && entry.editable))
     fun deleteEntry(entry: Entry) {
         val original=entries.find { it.id==entry.id } ?: return
         if(!canDelete(original))return
@@ -128,6 +144,7 @@ class DemoStore(context: Context, selectedUser: Person? = null) {
         if(!original.canAccept(viewer))return
         val accepted=original.copy(invite=InviteState.ACCEPTED,resolvedDay=LocalDate.now())
         entries[index]=accepted;save()
+        if(cloudSession!=null){undoAction=null;return}
         undoAction=UndoAction("Приглашение принято на этом устройстве") {
             val current=entries.indexOfFirst{it.id==accepted.id}
             if(current>=0 && entries[current]==accepted)entries[current]=original
@@ -156,6 +173,7 @@ class DemoStore(context: Context, selectedUser: Person? = null) {
         save()
     }
     private fun save() {
+        if(cloudSession!=null){onCloudSave?.invoke(StoreContent(entries.toList(),plans.toList(),lists.toList()));return}
         val data = JSONObject().put("entries", JSONArray(entries.map(::writeEntry)))
             .put("plans", JSONArray(plans.map(::writeCollection)))
             .put("lists", JSONArray(lists.map(::writeCollection)))
@@ -168,7 +186,7 @@ private fun collection(id: String, name: String, shared: Boolean, vararg titles:
     DemoCollection(id, name, shared, titles.mapIndexed { index, title -> CollectionItem("$id-$index", title) })
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 private fun JSONObject.date(key: String): LocalDate? = optString(key).takeIf { it.isNotEmpty() }?.let(LocalDate::parse)
-private fun writeEntry(e: Entry) = JSONObject().apply {
+internal fun writeEntry(e: Entry) = JSONObject().apply {
     put("id", e.id); put("title", e.title); put("date", e.date?.toString() ?: ""); put("week", e.week.toString())
     put("lastDate", e.lastDate?.toString() ?: ""); put("start", e.start); put("end", e.end); put("kind", e.kind.name)
     put("who", e.who.name); put("owner", e.owner.name); put("visibility", e.visibility.name); put("editable", e.editable)
@@ -177,14 +195,14 @@ private fun writeEntry(e: Entry) = JSONObject().apply {
 }
 internal fun decodePerson(value: String, aliases: Map<String, String> = emptyMap()): Person =
     Person.valueOf(aliases[value] ?: value)
-private fun readEntry(j: JSONObject, roleAliases: Map<String, String>) = Entry(
+internal fun readEntry(j: JSONObject, roleAliases: Map<String, String>) = Entry(
     id = j.getString("id"), title = j.getString("title"), date = j.date("date"), week = LocalDate.parse(j.getString("week")),
     lastDate = j.date("lastDate"), start = j.optString("start"), end = j.optString("end"), kind = Kind.valueOf(j.getString("kind")),
     who = decodePerson(j.getString("who"), roleAliases), owner = decodePerson(j.getString("owner"), roleAliases), visibility = Visibility.valueOf(j.getString("visibility")),
     editable = j.optBoolean("editable", true), done = j.optBoolean("done"), note = j.optString("note"),
     invite = InviteState.valueOf(j.optString("invite", "NONE")), incoming = j.optBoolean("incoming"), resolvedDay = j.date("resolvedDay"), isGathering = j.optBoolean("isGathering",false),
 )
-private fun writeCollection(c: DemoCollection) = JSONObject().put("id", c.id).put("name", c.name).put("shared", c.shared).put("owner", c.owner.name).put("updatedAt", c.updatedAt)
+internal fun writeCollection(c: DemoCollection) = JSONObject().put("id", c.id).put("name", c.name).put("shared", c.shared).put("owner", c.owner.name).put("updatedAt", c.updatedAt).put("itemIds",JSONArray(c.items.map{it.id}))
     .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked) }))
-private fun readCollection(j: JSONObject) = DemoCollection(j.getString("id"), j.getString("name"), j.getBoolean("shared"),
+internal fun readCollection(j: JSONObject) = DemoCollection(j.getString("id"), j.getString("name"), j.getBoolean("shared"),
     j.getJSONArray("items").objects().map { CollectionItem(it.getString("id"), it.getString("title"), it.optBoolean("checked")) }, Person.valueOf(j.optString("owner", "USER_1")),j.optLong("updatedAt",0))

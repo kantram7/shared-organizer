@@ -3,8 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val agentTest = providers.environmentVariable("KOTIKI_AGENT_TEST").orNull == "1"
+val agentAssets = providers.environmentVariable("KOTIKI_AGENT_ASSETS").orNull
+if (agentTest) {
+    require(agentAssets != null && file("$agentAssets/agent-firebase.json").isFile) { "Agent testing requires local Firebase options" }
+    require(gradle.startParameter.taskNames.none { it.contains("release", ignoreCase = true) }) { "Agent mode is debug-only" }
+}
 // The local Firebase config is ignored by Git; source-only builds remain available without it.
-if (file("google-services.json").isFile) {
+if (!agentTest && file("google-services.json").isFile) {
     apply(plugin = "com.google.gms.google-services")
 }
 val testRuntime = rootProject.file(providers.environmentVariable("KOTIKI_RUNTIME_DIR").orNull ?: ".local")
@@ -15,16 +21,19 @@ android {
         applicationId = "team.kotiki.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.1.5-demo"
+        versionCode = 8
+        versionName = "0.2.1"
+        buildConfigField("boolean", "AGENT_TEST", "false")
+        resValue("string", "app_name", "Kotiki team")
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     sourceSets.getByName("main").res.srcDir(rootProject.file("graphics/android"))
     sourceSets.getByName("test").java.setSrcDirs(listOf(rootProject.file("testing/unit/java")))
     // Personal presets are opt-in, debug-only, and excluded from the public repository.
-    providers.environmentVariable("KOTIKI_TEST_ASSETS").orNull?.let {
+    if (!agentTest) providers.environmentVariable("KOTIKI_TEST_ASSETS").orNull?.let {
         sourceSets.getByName("debug").assets.srcDir(it)
     }
+    if (agentTest) sourceSets.getByName("debug").assets.srcDir(agentAssets!!)
     // Optional local aliases for updating installations from private prototypes.
     providers.environmentVariable("KOTIKI_MIGRATION_ASSETS")?.orNull?.let {
         sourceSets.getByName("main").assets.srcDir(it)
@@ -49,6 +58,12 @@ android {
     }
     buildTypes {
         debug {
+            if (agentTest) {
+                applicationIdSuffix = ".agents"
+                versionNameSuffix = "-agents"
+                buildConfigField("boolean", "AGENT_TEST", "true")
+                resValue("string", "app_name", "Kotiki team · agents")
+            }
             // Optional existing demo key. Otherwise AGP creates a local debug key.
             System.getenv("KOTIKI_DEBUG_KEYSTORE")?.takeIf { it.isNotBlank() }?.let { keyPath ->
                 fun requiredEnv(name: String) = requireNotNull(System.getenv(name)?.takeIf { it.isNotBlank() }) {

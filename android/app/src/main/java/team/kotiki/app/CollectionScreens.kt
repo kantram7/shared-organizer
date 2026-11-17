@@ -16,12 +16,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 
-@Composable fun CollectionsScreen(store:DemoStore,isPlans:Boolean,onHelp:(String)->Unit) {
+@Composable fun CollectionsScreen(store:DemoStore,isPlans:Boolean,onPlanChat:(ChatTarget)->Unit={},onHelp:(String)->Unit) {
     val available=(if(isPlans)store.plans else store.lists).filter{it.shared || (!isPlans && it.owner==store.viewer)}
     // Snapshot order on entry: editing an open theme never moves it under the finger.
     var order by remember {mutableStateOf(available.sortedByDescending{it.updatedAt}.map{it.id})}
@@ -45,6 +47,10 @@ import java.time.LocalDate
                         if(!isPlans)Checkbox(item.checked,{store.toggleItem(group.id,item.id)})
                         Text(item.title,Modifier.weight(1f).padding(vertical=12.dp))
                         if(!isPlans)CollectionAccess(group,onHelp)
+                        if(isPlans)IconButton(
+                            onClick={onPlanChat(ChatTarget(id="plan_${group.id}_${item.id}",title=item.title,collectionId=group.id,itemId=item.id))},
+                            modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).semantics{contentDescription="Чат плана: ${item.title}"}
+                        ){KotikiIcon(Glyph.CHAT)}
                         ItemActions(item.title){store.deleteItem(isPlans,group.id,item.id)}
                     }
                 }

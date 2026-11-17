@@ -28,11 +28,13 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-@Composable fun KotikiApp(store:DemoStore,notificationTarget:GatheringNotificationTarget?=null,onNotificationHandled:()->Unit={},onProfile:(Person)->Unit={}) {
+@Composable fun KotikiApp(store:DemoStore,notificationTarget:GatheringNotificationTarget?=null,onNotificationHandled:()->Unit={},onSignOut:()->Unit={},chats:CloudChats?=null,onProfile:(Person)->Unit={}) {
     var page by rememberSaveable {mutableStateOf(Section.BOARD)}
     var editor by rememberSaveable {mutableStateOf<Entry?>(null)}
     var meeting by rememberSaveable {mutableStateOf<Entry?>(null)}
     var detail by rememberSaveable {mutableStateOf<Entry?>(null)}
+    var planChat by rememberSaveable {mutableStateOf<ChatTarget?>(null)}
+    var history by remember {mutableStateOf<List<String>?>(null)}
     var help by rememberSaveable {mutableStateOf<String?>(null)}
     val pages=rememberSaveableStateHolder()
     val colors=MaterialTheme.colorScheme
@@ -67,9 +69,10 @@ import java.time.LocalDate
         meeting=newGathering(store.viewer)
         scope.launch{drawer.close()}
     }
-    fun navigate(section:Section){page=section;scope.launch{drawer.close()}}
+    fun navigate(section:Section){planChat=null;page=section;scope.launch{drawer.close()}}
     BackHandler(enabled=drawer.isOpen){scope.launch{drawer.close()}}
     BackHandler(enabled=page!=Section.BOARD && editor==null && meeting==null && detail==null && help==null && !drawer.isOpen){page=Section.BOARD}
+    BackHandler(enabled=planChat!=null){planChat=null}
     ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=adaptive,drawerContent={
         if(adaptive)ModalDrawerSheet(Modifier.widthIn(max=320.dp).fillMaxHeight()) {
             Text("Kotiki team",Modifier.padding(20.dp),style=MaterialTheme.typography.titleLarge)
@@ -87,18 +90,22 @@ import java.time.LocalDate
                         Text("Kotiki team · ${personLabel(store.viewer)}",Modifier.weight(1f).padding(start=13.dp,end=12.dp),style=MaterialTheme.typography.labelLarge,color=colors.onSurfaceVariant)
                     }
                     HorizontalDivider(color=colors.outlineVariant)
+                    if(store.cloudSession!=null)Text(store.cloudStatus,Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=2.dp),
+                        style=MaterialTheme.typography.labelSmall,color=if(store.cloudError.isEmpty())colors.onSurfaceVariant else colors.error)
                     Row(Modifier.weight(1f)) {
                         if(!adaptive){Box(Modifier.width(navigationWidth).fillMaxHeight().background(colors.surface)){AppNavigation(page,false,::navigate,::gatherCats)};VerticalDivider(color=colors.outlineVariant)}
                         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal=12.dp)) {
                             if(store.storageWarning)Text("Не удалось прочитать сохранённое демо",color=colors.error,style=MaterialTheme.typography.labelSmall)
                             pages.SaveableStateProvider(page.name) {
-                                when(page) {
+                                if(planChat!=null)ChatScreen(planChat!!,chats,onBack={planChat=null})
+                                else when(page) {
                                     Section.BOARD->BoardScreen(store,::open,{editor=it},{help=it})
-                                    Section.PLANS->CollectionsScreen(store,true){help=it}
+                                    Section.PLANS->CollectionsScreen(store,true,onPlanChat={store.preparePlanChat();planChat=it}){help=it}
                                     Section.CALENDAR->CalendarScreen(store,::open,{editor=it},{help=it})
                                     Section.LISTS->CollectionsScreen(store,false){help=it}
                                     Section.INVITES->InvitationsScreen(store,{detail=it},{val today=LocalDate.now();editor=Entry(newId(),"",today,mondayOf(today),kind=Kind.EVENT,owner=store.viewer,invite=InviteState.PENDING)})
-                                    Section.SETTINGS->SettingsScreen(store,onProfile)
+                                    Section.CHAT->ChatScreen(ChatTarget("general","Общий чат"),chats)
+                                    Section.SETTINGS->SettingsScreen(store,onProfile,onSignOut)
                                 }
                             }
                         }
@@ -110,8 +117,11 @@ import java.time.LocalDate
     }
     meeting?.let {entry->EntryEditor(entry,onDismiss={meeting=null},onSave={store.upsert(it);meeting=null})}
     editor?.let {entry->EntryEditor(entry,onDismiss={editor=null},onSave={store.upsert(it);editor=null},
-        onDelete=if(store.entries.any{it.id==entry.id} && store.canDelete(entry)){{store.deleteEntry(entry);editor=null}} else null)}
-    detail?.let {entry->AlertDialog(onDismissRequest={detail=null},title={Text(entry.title)},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        onDelete=if(store.entries.any{it.id==entry.id} && store.canDelete(entry)){{store.deleteEntry(entry);editor=null}} else null,
+        onHistory=if(store.cloudSession!=null && store.entries.any{it.id==entry.id}){{history=listOf("Загружаем историю…");store.cloudHistory?.invoke("entry_${entry.id}"){history=it}}}else null)}
+    detail?.let {opened->
+        val entry=store.entries.find{it.id==opened.id}?.redactFor(store.viewer) ?: opened
+        AlertDialog(onDismissRequest={detail=null},title={Text(entry.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         if(entry.invite!=InviteState.NONE) {
             Text("Отправитель: ${personLabel(entry.owner)}")
             Text("Получатель: ${personLabel(entry.owner.other())}")
@@ -121,15 +131,23 @@ import java.time.LocalDate
             Text("Участники — мы оба")
         }
         Text(entry.date?.let(::fullDayLabel) ?: "На неделе, без дня")
-        if(entry.start.isNotEmpty())Text("${entry.start}–${entry.end}")
-        if(entry.note.isNotBlank())Text(entry.note)
-        if(entry.invite!=InviteState.NONE)Text("Пример приглашения · обмен пока недоступен",color=colors.onSurfaceVariant)
+        if(entry.start.isNotEmpty()){Text("${entry.start}–${entry.end}")}
+        if(entry.note.isNotBlank()){Text(entry.note)}
+        if(entry.invite!=InviteState.NONE && store.cloudSession==null)Text("Пример приглашения · обмен пока недоступен",color=colors.onSurfaceVariant)
+        if(store.cloudSession!=null)TextButton({
+            history=listOf("Загружаем историю…")
+            store.cloudHistory?.invoke("entry_${entry.id}"){history=it}
+        }){Text("История изменений")}
         InvitationAcceptButton(entry,{store.acceptInvitation(it);detail=null})
         if(entry.invite==InviteState.ACCEPTED)Text("Приглашение принято",color=colors.primary)
         if(entry.isGathering && entry.invite==InviteState.PENDING && entry.gatheringError()==null)GatheringNotificationPreview(entry)
     }},confirmButton={TextButton({detail=null}){Text("Понятно")}},dismissButton={
         if(store.canDelete(entry))TextButton({store.deleteEntry(entry);detail=null}){Text("Удалить",color=colors.error)}
     })}
+    history?.let {rows->AlertDialog(onDismissRequest={history=null},title={Text("История изменений")},
+        text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            if(rows.isEmpty())Text("Пока нет сохранённых версий") else rows.forEach{Text(it)}
+        }},confirmButton={TextButton({history=null}){Text("Закрыть")}})}
     help?.let {text->AlertDialog(onDismissRequest={help=null},title={Text("Видимость")},text={Text(text)},confirmButton={TextButton({help=null}){Text("Понятно")}})}
 }
 
@@ -157,7 +175,7 @@ import java.time.LocalDate
     }
 }
 @Composable private fun NavigationItem(section:Section,selected:Boolean,expanded:Boolean,onClick:()->Unit) {
-    val glyph=when(section){Section.BOARD->Glyph.BOARD;Section.PLANS->Glyph.PLANS;Section.CALENDAR->Glyph.CALENDAR;Section.LISTS->Glyph.LIST;Section.INVITES->Glyph.MAIL;Section.SETTINGS->Glyph.SETTINGS}
+    val glyph=when(section){Section.BOARD->Glyph.BOARD;Section.PLANS->Glyph.PLANS;Section.CALENDAR->Glyph.CALENDAR;Section.LISTS->Glyph.LIST;Section.INVITES->Glyph.MAIL;Section.CHAT->Glyph.CHAT;Section.SETTINGS->Glyph.SETTINGS}
     val color=if(selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
     val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color).clickable(onClick=onClick).padding(vertical=11.dp)
     if(expanded)Row(modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {

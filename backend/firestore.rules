@@ -1,0 +1,132 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function space(s) { return get(/databases/$(database)/documents/spaces/$(s)).data; }
+    function membership() { return get(/databases/$(database)/documents/members/$(request.auth.uid)).data; }
+    function principal(s) { return membership().get('canonicalUid', request.auth.uid); }
+    function member(s) { return signedIn() && membership().spaceId == s && request.time < membership().get('expiresAt',request.time + duration.value(1,'h')) && principal(s) in space(s).uids; }
+    function role(s) { return space(s).roles[principal(s)]; }
+    function owned(s, d) { return d.owner == principal(s) && d.data.owner == role(s); }
+    function readable(s, d) { return member(s) && principal(s) in d.readers; }
+    function readersValid(s, d) {
+      return d.readers == (d.shared ? space(s).uids : [d.owner]);
+    }
+    function dataValid(s, d) {
+      return d.keys().hasOnly(['type','owner','readers','shared','data','deleted','revision','updatedAt','actor'])
+        && d.type in ['entry','plan','list'] && d.owner in space(s).uids
+        && d.deleted is bool && d.shared is bool && d.data is map
+        && d.revision is string && d.revision.size() > 10 && d.revision.size() < 80
+        && d.actor == request.auth.uid && d.updatedAt == request.time
+        && d.data.owner == space(s).roles[d.owner] && readersValid(s, d)
+        && (d.type == 'entry' ? entryValid(d) : collectionValid(d));
+    }
+    function entryValid(d) {
+      let e = d.data;
+      return e.keys().hasOnly(['id','title','date','week','lastDate','start','end','kind','who','owner','visibility','editable','done','note','invite','incoming','resolvedDay','isGathering'])
+        && e.title is string && e.title.size() <= 2000 && e.note is string && e.note.size() <= 20000
+        && e.kind in ['TASK','EVENT'] && e.who in ['USER_1','USER_2','BOTH']
+        && e.visibility in ['SHARED','PRIVATE','BUSY'] && e.editable is bool && e.done is bool
+        && e.invite in ['NONE','PENDING','ACCEPTED','DECLINED'] && e.isGathering is bool
+        && e.date is string && e.week is string && e.lastDate is string && e.start is string && e.end is string
+        && e.resolvedDay is string && e.incoming is bool && d.shared == (e.visibility == 'SHARED')
+        && (e.invite == 'NONE' || (d.shared && e.who == 'BOTH'))
+        && (!e.isGathering || (e.kind == 'EVENT' && e.who == 'BOTH' && d.shared && e.invite != 'NONE'
+          && e.date.size() == 10 && e.lastDate == e.date && e.start.matches('[0-2][0-9]:[0-5][0-9]') && e.end > e.start));
+    }
+    function collectionValid(d) {
+      return d.data.keys().hasOnly(['id','name','shared','owner','updatedAt','items','itemIds'])
+        && d.data.name is string && d.data.name.size() <= 2000 && d.data.items is list && d.data.items.size() <= 500
+        && d.data.shared == d.shared && (d.type != 'plan' || d.shared);
+    }
+    function allowedUpdate(s, old, next) {
+      let owner = old.owner == principal(s);
+      let editor = old.shared && (old.type != 'entry' || old.data.editable);
+      let sameAccess = next.readers == old.readers && next.shared == old.shared;
+      let answer = old.type == 'entry' && old.shared && !owner && !old.deleted && !next.deleted
+        && old.data.invite == 'PENDING' && next.data.invite in ['ACCEPTED','DECLINED']
+        && old.data.who == 'BOTH' && next.data.diff(old.data).affectedKeys().hasOnly(['invite','resolvedDay']);
+      return next.type == old.type && next.owner == old.owner && next.data.id == old.data.id
+        && (owner || (editor && sameAccess) || answer)
+        && (old.type != 'entry' || ((old.data.invite == 'NONE' && next.data.invite == 'NONE')
+          || (owner && (next.deleted || old.deleted) && next.data == old.data)) || answer)
+        && (owner || (next.data.owner == old.data.owner && sameAccess && (old.type != 'entry' || next.data.editable == old.data.editable)));
+    }
+    function historyMatches(s, id, d) {
+      return getAfter(/databases/$(database)/documents/spaces/$(s)/records/$(id)/revisions/$(d.revision)).data == d;
+    }
+    function busyProjection(d) {
+      return (!d.deleted && d.data.visibility == 'BUSY') ? {'owner':d.owner,'revision':d.revision,'active':true,
+        'date':d.data.date,'lastDate':d.data.lastDate,'week':d.data.week,'start':d.data.start,'end':d.data.end,
+        'who':d.data.who,'kind':d.data.kind} : {'owner':d.owner,'revision':d.revision,'active':false};
+    }
+    function busyMatches(s, id, d) {
+      return d.type != 'entry' || getAfter(/databases/$(database)/documents/spaces/$(s)/busy/$(id)).data == busyProjection(d);
+    }
+    match /members/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+    match /spaces/{s} {
+      allow get: if member(s);
+      allow list, write: if false;
+      match /records/{id} {
+        allow read: if readable(s, resource.data);
+        allow create: if member(s) && dataValid(s, request.resource.data) && owned(s, request.resource.data)
+          && !request.resource.data.deleted
+          && (request.resource.data.type != 'entry' || request.resource.data.data.invite in ['NONE','PENDING'])
+          && historyMatches(s, id, request.resource.data) && busyMatches(s, id, request.resource.data);
+        allow update: if readable(s, resource.data) && dataValid(s, request.resource.data)
+          && request.resource.data.revision != resource.data.revision
+          && allowedUpdate(s, resource.data, request.resource.data)
+          && historyMatches(s, id, request.resource.data) && busyMatches(s, id, request.resource.data);
+        allow delete: if false;
+        match /revisions/{revision} {
+          allow read: if readable(s, get(/databases/$(database)/documents/spaces/$(s)/records/$(id)).data)
+            && principal(s) in resource.data.readers;
+          allow create: if member(s) && request.resource.data.revision == revision
+            && getAfter(/databases/$(database)/documents/spaces/$(s)/records/$(id)).data == request.resource.data;
+          allow update, delete: if false;
+        }
+      }
+      function activeChat(chatId) {
+        let chat = get(/databases/$(database)/documents/spaces/$(s)/chats/$(chatId)).data;
+        return chat.type == 'general' || (chat.type == 'plan'
+          && !get(/databases/$(database)/documents/spaces/$(s)/records/$('plan_' + chat.collectionId)).data.deleted
+          && chat.itemId in get(/databases/$(database)/documents/spaces/$(s)/records/$('plan_' + chat.collectionId)).data.data.get('itemIds', []));
+      }
+      match /chats/{chatId} {
+        allow read: if member(s);
+        allow create: if member(s) && request.resource.data.keys().hasOnly(['type','collectionId','itemId','createdBy','createdAt'])
+          && request.resource.data.createdBy == principal(s) && request.resource.data.createdAt == request.time
+          && ((chatId == 'general' && request.resource.data.type == 'general' && request.resource.data.collectionId == '' && request.resource.data.itemId == '')
+            || (request.resource.data.type == 'plan' && request.resource.data.collectionId is string && request.resource.data.itemId is string
+              && chatId == 'plan_' + request.resource.data.collectionId + '_' + request.resource.data.itemId
+              && !get(/databases/$(database)/documents/spaces/$(s)/records/$('plan_' + request.resource.data.collectionId)).data.deleted
+              && request.resource.data.itemId in get(/databases/$(database)/documents/spaces/$(s)/records/$('plan_' + request.resource.data.collectionId)).data.data.get('itemIds', [])));
+        allow update, delete: if false;
+        match /messages/{messageId} {
+          allow read: if member(s) && activeChat(chatId);
+          allow create: if member(s) && activeChat(chatId)
+            && request.resource.data.keys().hasOnly(['sender','actor','role','text','createdAt','clientTime','deleted'])
+            && request.resource.data.sender == principal(s) && request.resource.data.actor == request.auth.uid
+            && request.resource.data.role == role(s) && request.resource.data.createdAt == request.time
+            && request.resource.data.clientTime is int && request.resource.data.deleted == false
+            && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4000;
+          allow update: if member(s) && activeChat(chatId) && resource.data.sender == principal(s)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text','deleted'])
+            && request.resource.data.deleted == true && request.resource.data.text == '';
+          allow delete: if false;
+        }
+      }
+      match /busy/{id} {
+        allow read: if member(s) && (resource.data.active || resource.data.owner == principal(s));
+        allow create, update: if member(s)
+          && request.resource.data == busyProjection(getAfter(/databases/$(database)/documents/spaces/$(s)/records/$(id)).data)
+          && getAfter(/databases/$(database)/documents/spaces/$(s)/records/$(id)).data.actor == request.auth.uid
+          && getAfter(/databases/$(database)/documents/spaces/$(s)/records/$(id)).data.updatedAt == request.time;
+        allow delete: if false;
+      }
+    }
+  }
+}

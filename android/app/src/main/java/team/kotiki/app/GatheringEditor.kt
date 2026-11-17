@@ -58,7 +58,7 @@ import java.time.LocalTime
                         OutlinedButton({pickTime(end,start.ifEmpty{"20:00"}){end=it}},Modifier.weight(1f)){Text(if(end.isEmpty())"Время окончания" else "Конец $end")}
                     }
                     Text("Выбери дату, время начала и окончания. Приглашение будет ждать подтверждения второго участника.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("В демоверсии сохраняется только на этом телефоне. Отправка второму участнику пока недоступна.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации. Push-уведомления будут подключены отдельно." else "В демоверсии сохраняется только на этом телефоне. Отправка второму участнику пока недоступна.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 error?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
                 HorizontalDivider()

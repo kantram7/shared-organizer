@@ -23,7 +23,7 @@ import java.time.temporal.ChronoUnit
     val direction=all.filter { it.incoming==incoming }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeading(if(archive)"Архив" else "Приглашения",if(archive)"Назад" else "+ Создать",{if(archive)archive=false else onCreate()})
-        Text("Пример приглашений · обмен пока недоступен",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if(store.cloudSession!=null)"Приглашения вашего пространства" else "Пример приглашений · обмен пока недоступен",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(archive) {
             all.filter(::archived).forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
             if(all.none(::archived))Text("Архив пока пуст")
@@ -32,7 +32,7 @@ import java.time.temporal.ChronoUnit
                 FilterChip(incoming,{incoming=true},label={Text("Мне")});FilterChip(!incoming,{incoming=false},label={Text("От меня")})
             }
             direction.filter { it.invite==InviteState.PENDING }.forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
-            if(direction.none { it.invite==InviteState.PENDING })CatEmpty("Новых приглашений пока нет","Создать пример",onCreate)
+            if(direction.none { it.invite==InviteState.PENDING })CatEmpty("Новых приглашений пока нет",if(store.cloudSession==null)"Создать пример" else "Создать приглашение",onCreate)
             HorizontalDivider(Modifier.padding(vertical=16.dp))
             Text("История",style=MaterialTheme.typography.titleMedium)
             Text("${store.retentionDays} дней после ответа",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -53,13 +53,18 @@ import java.time.temporal.ChronoUnit
         }
     }
 }
-@Composable fun SettingsScreen(store:DemoStore,onProfile:(Person)->Unit) {
+@Composable fun SettingsScreen(store:DemoStore,onProfile:(Person)->Unit,onSignOut:()->Unit={}) {
     var retention by rememberSaveable { mutableStateOf(store.retentionDays.toString()) }
     var message by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         ScreenHeading("Настройки")
         Text("Профиль",style=MaterialTheme.typography.titleMedium)
         OutlinedTextField(personLabel(store.viewer),{},Modifier.fillMaxWidth(),readOnly=true,label={Text("Отображаемое имя")})
+        if(store.cloudSession!=null) {
+            Text(store.cloudStatus,style=MaterialTheme.typography.bodySmall)
+            OutlinedButton(onSignOut,enabled=!store.cloudPending && !store.chatPending){Text("Выйти из аккаунта")}
+            if(store.cloudPending || store.chatPending)Text("Выход станет доступен после отправки изменений.",style=MaterialTheme.typography.bodySmall)
+        }
         if (store.preset != null) {
             Text("Локальный тестовый профиль",style=MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -88,8 +93,8 @@ import java.time.temporal.ChronoUnit
         }){Text("Сохранить")}
         if(message.isNotEmpty())Text(message,style=MaterialTheme.typography.bodySmall)
         HorizontalDivider()
-        Text("Kotiki team 0.1.5 · демо",style=MaterialTheme.typography.labelMedium)
-        Text("Демонстрационные записи сохраняются локально. Облачного обмена и подключения календарей пока нет.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Kotiki team ${BuildConfig.VERSION_NAME}",style=MaterialTheme.typography.labelMedium)
+        Text(if(store.cloudSession!=null)"Записи синхронизируются с Firebase. Подключение внешних календарей пока недоступно." else "Демонстрационные записи сохраняются локально. Облачного обмена и подключения календарей пока нет.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
     }
 }

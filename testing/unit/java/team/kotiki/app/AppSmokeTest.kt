@@ -26,17 +26,17 @@ import org.robolectric.annotation.LooperMode
 @LooperMode(LooperMode.Mode.PAUSED)
 class AppSmokeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
-    @Before fun waitForWelcome(){compose.mainClock.advanceTimeBy(2200);compose.waitForIdle()}
+    @Before fun waitForWelcome(){compose.mainClock.advanceTimeBy(2200);compose.waitForIdle();if(compose.onAllNodesWithText("Посмотреть локальное демо").fetchSemanticsNodes().isNotEmpty())compose.onNodeWithText("Посмотреть локальное демо").performScrollTo().performClick()}
     @Test fun launchNavigateAndCloseEditor() {
         compose.onNodeWithContentDescription("Kotiki team").assertIsDisplayed()
         compose.onNodeWithText("+ Добавить").performClick()
         compose.onNodeWithText("Новая запись").assertIsDisplayed()
         compose.onNodeWithContentDescription("Закрыть редактирование").performClick()
-        compose.onNodeWithText("Планы").performClick()
+        compose.onNodeWithText("Планы").performScrollTo().performClick()
         compose.onNodeWithText("Наши планы").assertIsDisplayed()
-        compose.onNodeWithText("Календарь").performClick()
+        compose.onNodeWithText("Календарь").performScrollTo().performClick()
         compose.onNodeWithText("+ Событие").assertIsDisplayed()
-        compose.onNodeWithText("Списки").performClick()
+        compose.onNodeWithText("Списки").performScrollTo().performClick()
         compose.onNodeWithText("+ Список").assertIsDisplayed()
         compose.onNodeWithText("Зовут").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Приглашения").assertIsDisplayed()
@@ -51,8 +51,8 @@ class AppSmokeTest {
         val week=mondayOf(java.time.LocalDate.now()).plusWeeks(1)
         val label="Неделя ${dateLabel(week)} — ${dateLabel(week.plusDays(6))}"
         compose.onNodeWithText(label).assertIsDisplayed()
-        compose.onNodeWithText("Календарь").performClick()
-        compose.onNodeWithText("Доска").performClick()
+        compose.onNodeWithText("Календарь").performScrollTo().performClick()
+        compose.onNodeWithText("Доска").performScrollTo().performClick()
         compose.onNodeWithText(label).assertIsDisplayed()
         compose.onNodeWithText("Дни").assertIsSelected()
         compose.onNodeWithText("Мои").assertIsSelected()
@@ -66,7 +66,7 @@ class AppSmokeTest {
         compose.onNodeWithContentDescription("Закрыть редактирование").performClick()
     }
     @Test fun cyrillicThemePersistsAfterRecreation() {
-        compose.onNodeWithText("Планы").performClick()
+        compose.onNodeWithText("Планы").performScrollTo().performClick()
         compose.onNodeWithText("+ Тема").performClick()
         compose.onNodeWithText("Название").performTextInput("Ёжики и путешествия")
         compose.onNodeWithText("Добавить").performClick()

@@ -1,0 +1,8 @@
+{
+  "projectId": "your-firebase-project",
+  "spaceId": "home",
+  "participants": [
+    {"uid":"FIRST_AUTH_UID", "role":"USER_1", "name":"Пользователь 1"},
+    {"uid":"SECOND_AUTH_UID", "role":"USER_2", "name":"Пользователь 2"}
+  ]
+}

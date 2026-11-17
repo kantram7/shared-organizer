@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 enum class Glyph(val resource: Int) {
     MEETING(R.drawable.ic_meeting), MENU(R.drawable.ic_menu), CAT(R.drawable.ic_cat_face), CAT_GIRL(0), PAIR(0), PRIVATE_LOCK(R.drawable.ic_private_lock),
     EYE_OFF(R.drawable.ic_eye_off), BOARD(R.drawable.ic_board), PLANS(R.drawable.ic_plans),
-    CALENDAR(R.drawable.ic_calendar), LIST(R.drawable.ic_list), MAIL(R.drawable.ic_mail),
+    CALENDAR(R.drawable.ic_calendar), LIST(R.drawable.ic_list), MAIL(R.drawable.ic_mail), CHAT(R.drawable.ic_chat),
     SETTINGS(R.drawable.ic_settings), CLOSE(R.drawable.ic_close), LEFT(R.drawable.ic_left),
     RIGHT(R.drawable.ic_right), PLUS(R.drawable.ic_plus)
 }

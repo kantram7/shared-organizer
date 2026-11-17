@@ -21,6 +21,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if(savedInstanceState==null)notificationTarget=GatheringNotifications.target(intent)
+        if (BuildConfig.AGENT_TEST && com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+            val config=assets.open("agent-firebase.json").bufferedReader().use { org.json.JSONObject(it.readText()) }
+            val options=com.google.firebase.FirebaseOptions.Builder()
+                .setProjectId(config.getString("projectId")).setApplicationId(config.getString("applicationId"))
+                .setApiKey(config.getString("apiKey")).build()
+            com.google.firebase.FirebaseApp.initializeApp(this,options)
+        }
         enableEdgeToEdge()
         if(Build.VERSION.SDK_INT>=31)splashScreen.setOnExitAnimationListener{it.remove()}
         setContent {
@@ -33,17 +40,9 @@ class MainActivity : ComponentActivity() {
                 onDispose{lifecycle.removeObserver(observer)}
             }
 
-            var store by remember { mutableStateOf(DemoStore(applicationContext)) }
-            CompositionLocalProvider(LocalDemoIdentity provides store.identity) {
-                key(store.viewer) {
-                    KotikiTheme(store.theme) {
-                        BrandWelcome(welcome,{welcome=false}) {
-                            KotikiApp(store,notificationTarget,{notificationTarget=null}) { person ->
-                                getSharedPreferences("local_test_profiles", MODE_PRIVATE).edit().putString("selected",person.name).apply()
-                                store = DemoStore(applicationContext,person)
-                            }
-                        }
-                    }
+            KotikiTheme("system") {
+                BrandWelcome(welcome,{welcome=false}) {
+                    CloudGate(notificationTarget){notificationTarget=null}
                 }
             }
         }

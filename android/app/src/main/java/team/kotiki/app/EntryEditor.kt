@@ -22,10 +22,11 @@ import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
 import java.time.LocalTime
 
-@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null) {
+@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null) {
     if(original.isGathering){GatheringEditor(original,onDismiss,onSave);return}
     val context=LocalContext.current
     val viewer=LocalDemoIdentity.current.viewer
+    val cloud=LocalCloudMode.current
     var title by rememberSaveable(original.id) { mutableStateOf(original.title) }
     var note by rememberSaveable(original.id) { mutableStateOf(original.note) }
     var kind by rememberSaveable(original.id) { mutableStateOf(original.kind) }
@@ -55,7 +56,7 @@ import java.time.LocalTime
         Surface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge,color=MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text(if(original.invite==InviteState.PENDING)"Приглашение · демо" else if(original.title.isEmpty())"Новая запись" else "Редактирование",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
+                    Text(if(original.invite==InviteState.PENDING)if(LocalCloudMode.current)"Приглашение" else "Приглашение · демо" else if(original.title.isEmpty())"Новая запись" else "Редактирование",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                     if(onDelete!=null)ItemActions(original.title,onDelete)
                     IconButton(onClick=onDismiss,modifier=Modifier.semantics{contentDescription="Закрыть редактирование"}){KotikiIcon(Glyph.CLOSE)}
                 }
@@ -69,7 +70,7 @@ import java.time.LocalTime
                 }
                 Text("Участники",style=MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
-                    Person.entries.forEach { p->FilterChip(who==p,{who=p},enabled=shared || p==viewer,label={Text(personLabel(p))}) }
+                    Person.entries.forEach { p->FilterChip(who==p,{who=p},enabled=(shared || p==viewer) && (!cloud || original.invite==InviteState.NONE),label={Text(personLabel(p))}) }
                 }
                 Column(Modifier.bringIntoViewRequester(dateTarget)) {
                 OutlinedButton(onClick={pickDate(date){date=it;if(last==null || last!!<it)last=it}},modifier=Modifier.fillMaxWidth()) { Text(date?.let(::fullDayLabel) ?: "Выбрать день") }
@@ -88,11 +89,12 @@ import java.time.LocalTime
                 if(error.isNotEmpty() && error!="Укажи название")Text(error,color=MaterialTheme.colorScheme.error)
                 }
                 if(original.invite==InviteState.NONE) {
-                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it;if(!it){who=viewer;editable=false}});Text("Видно всем")}
-                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(editable,{editable=it},enabled=shared);Text("Совместное редактирование")}
+                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it;if(!it){who=viewer;editable=false}},enabled=!LocalCloudMode.current || original.owner==viewer);Text("Видно всем")}
+                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(editable,{editable=it},enabled=shared && (!LocalCloudMode.current || original.owner==viewer));Text("Совместное редактирование")}
                     if(!shared)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(busy,{busy=it});Text("Показывать занятость")}
-                } else Text("Сохранится только пример на этом телефоне. Другой участник не получит приглашение.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                } else Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации." else "Сохранится только пример на этом телефоне. Другой участник не получит приглашение.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if(onHistory!=null)TextButton(onHistory){Text("История изменений")}
                 HorizontalDivider()
                 Button(onClick={
                     val finalLast=if(kind==Kind.TASK)date else last ?: date
@@ -106,8 +108,8 @@ import java.time.LocalTime
                     if(error.isNotEmpty())scope.launch {if(error=="Укажи название")titleTarget.bringIntoView() else dateTarget.bringIntoView()}
                     if(error.isEmpty())onSave(original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=finalLast,
                         week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
-                        who=if(shared)who else viewer,visibility=if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable))
-                },modifier=Modifier.fillMaxWidth()){Text(if(original.invite==InviteState.NONE)"Сохранить" else "Сохранить пример")}
+                        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable))
+                },modifier=Modifier.fillMaxWidth()){Text(if(original.invite==InviteState.NONE || LocalCloudMode.current)"Сохранить" else "Сохранить пример")}
             }
         }
     }

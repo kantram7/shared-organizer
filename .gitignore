@@ -59,3 +59,7 @@ local-test-preset.json
 # Python helper caches
 __pycache__/
 *.pyc
+
+# Firebase local CLI state
+.firebase/
+.firebaserc
