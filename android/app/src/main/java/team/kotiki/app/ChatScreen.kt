@@ -25,7 +25,7 @@ import java.util.Locale
 @Composable fun ChatScreen(target:ChatTarget,chats:CloudChats?,onBack:(()->Unit)?=null) {
     if(chats==null) {
         Column(Modifier.fillMaxSize()) {
-            ChatHeading(target.title,onBack)
+            ChatHeading(target.title,onBack,if(target.collectionId.isNotBlank())"Назад к планам" else "Назад")
             Text("Войди в облако для переписки",Modifier.padding(vertical=20.dp))
         }
         return
@@ -65,7 +65,7 @@ import java.util.Locale
             if(snapshot.messages.isNotEmpty())listState.animateScrollToItem(snapshot.messages.lastIndex)
         }
         Column(Modifier.fillMaxSize().imePadding()) {
-            ChatHeading(target.title,onBack)
+            ChatHeading(target.title,onBack,if(target.collectionId.isNotBlank())"Назад к планам" else "Назад")
             Text(when {
                 snapshot.loading->"Открываем чат…"
                 snapshot.error!=null->snapshot.error!!
@@ -76,7 +76,7 @@ import java.util.Locale
             if(snapshot.error!=null)TextButton({retry++}){Text("Повторить подключение")}
             LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=listState,contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 if(!snapshot.loading && snapshot.messages.isEmpty())item {
-                    Text("Здесь можно обсудить ${if(target.id=="general")"ваши планы и дела" else "этот план"}.",color=colors.onSurfaceVariant)
+                    Text("Здесь можно обсудить ${if(target.id=="general")"ваши планы и дела" else if(target.collectionId.isNotBlank())"этот план" else "эту запись"}.",color=colors.onSurfaceVariant)
                 }
                 items(snapshot.messages,key={it.id}){message->
                     val own=message.sender==chats.session.uid
@@ -117,9 +117,9 @@ import java.util.Locale
     }
 }
 
-@Composable private fun ChatHeading(title:String,onBack:(()->Unit)?) {
+@Composable private fun ChatHeading(title:String,onBack:(()->Unit)?,backLabel:String) {
     Row(Modifier.fillMaxWidth().padding(top=14.dp,bottom=10.dp),verticalAlignment=Alignment.CenterVertically) {
-        if(onBack!=null)IconButton(onBack,Modifier.semantics{contentDescription="Назад к планам"}){KotikiIcon(Glyph.LEFT)}
+        if(onBack!=null)IconButton(onBack,Modifier.semantics{contentDescription=backLabel}){KotikiIcon(Glyph.LEFT)}
         Text(title,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
     }
 }

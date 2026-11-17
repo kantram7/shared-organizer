@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
             val config=assets.open("agent-firebase.json").bufferedReader().use { org.json.JSONObject(it.readText()) }
             val options=com.google.firebase.FirebaseOptions.Builder()
                 .setProjectId(config.getString("projectId")).setApplicationId(config.getString("applicationId"))
-                .setApiKey(config.getString("apiKey")).build()
+                .setApiKey(config.getString("apiKey")).setGcmSenderId(config.optString("messagingSenderId").ifBlank{config.getString("applicationId").split(":").getOrNull(1).orEmpty()}).build()
             com.google.firebase.FirebaseApp.initializeApp(this,options)
         }
         enableEdgeToEdge()

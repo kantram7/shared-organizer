@@ -33,6 +33,7 @@ import java.time.LocalDate
     var editor by rememberSaveable {mutableStateOf<Entry?>(null)}
     var meeting by rememberSaveable {mutableStateOf<Entry?>(null)}
     var detail by rememberSaveable {mutableStateOf<Entry?>(null)}
+    var proposalEditor by rememberSaveable {mutableStateOf<Entry?>(null)}
     var planChat by rememberSaveable {mutableStateOf<ChatTarget?>(null)}
     var history by remember {mutableStateOf<List<String>?>(null)}
     var help by rememberSaveable {mutableStateOf<String?>(null)}
@@ -45,14 +46,23 @@ import java.time.LocalDate
     val snackbar=remember {SnackbarHostState()}
     LaunchedEffect(notificationTarget) {
         notificationTarget?.let {target->
-            val entry=store.entries.find{it.id==target.id && it.isGathering && it.visibleTo(store.viewer)}
+            if(target.authUid.isNotBlank() && target.authUid!=store.cloudSession?.authUid){onNotificationHandled();return@let}
+            if(target.chatId.isNotBlank()) {
+                if(editor!=null || meeting!=null){onNotificationHandled();scope.launch{snackbar.showSnackbar("Закрой редактор, затем открой чат")};return@let}
+                page=when { target.chatId=="general" -> Section.CHAT; target.collectionId.isNotBlank() -> Section.PLANS; else -> Section.BOARD }
+                val chatTitle=if(target.collectionId.isNotBlank())store.plans.find{it.id==target.collectionId}?.items?.find{it.id==target.itemId}?.title
+                    else store.entries.find{it.id==target.itemId || "entry_"+it.id==target.chatId}?.title
+                planChat=if(target.chatId=="general")null else ChatTarget(target.chatId,chatTitle ?: "Обсуждение",target.collectionId,target.itemId)
+                onNotificationHandled();return@let
+            }
+            val entry=store.entries.find{it.id==target.id && it.visibleTo(store.viewer)}
             val message=when {
-                target.profile!=store.viewer.name -> "Приглашение относится к другому локальному профилю"
+                target.profile.isNotBlank() && target.profile!=store.viewer.name -> "Приглашение относится к другому локальному профилю"
                 entry==null -> "Приглашение уже удалено или недоступно"
                 editor!=null || meeting!=null -> "Закрой редактор, чтобы открыть приглашение из раздела «Зовут»"
                 else -> null
             }
-            if(message==null){page=Section.INVITES;detail=entry}
+            if(message==null){page=if(entry?.invite!=InviteState.NONE)Section.INVITES else Section.BOARD;detail=entry}
             onNotificationHandled()
             if(message!=null)scope.launch{snackbar.showSnackbar(message)}
         }
@@ -88,10 +98,9 @@ import java.time.LocalDate
                             BrandMark(Modifier.requiredSize(62.dp))
                         }
                         Text("Kotiki team · ${personLabel(store.viewer)}",Modifier.weight(1f).padding(start=13.dp,end=12.dp),style=MaterialTheme.typography.labelLarge,color=colors.onSurfaceVariant)
+                        if(store.cloudSession!=null)SyncStatus(store)
                     }
                     HorizontalDivider(color=colors.outlineVariant)
-                    if(store.cloudSession!=null)Text(store.cloudStatus,Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=2.dp),
-                        style=MaterialTheme.typography.labelSmall,color=if(store.cloudError.isEmpty())colors.onSurfaceVariant else colors.error)
                     Row(Modifier.weight(1f)) {
                         if(!adaptive){Box(Modifier.width(navigationWidth).fillMaxHeight().background(colors.surface)){AppNavigation(page,false,::navigate,::gatherCats)};VerticalDivider(color=colors.outlineVariant)}
                         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal=12.dp)) {
@@ -115,10 +124,17 @@ import java.time.LocalDate
             }
         }
     }
+    proposalEditor?.let {original -> ProposalEditor(original,onDismiss={proposalEditor=null},onPropose={store.proposeInvitation(original,it);proposalEditor=null}) }
     meeting?.let {entry->EntryEditor(entry,onDismiss={meeting=null},onSave={store.upsert(it);meeting=null})}
     editor?.let {entry->EntryEditor(entry,onDismiss={editor=null},onSave={store.upsert(it);editor=null},
+        isNew=store.entries.none{it.id==entry.id},
         onDelete=if(store.entries.any{it.id==entry.id} && store.canDelete(entry)){{store.deleteEntry(entry);editor=null}} else null,
-        onHistory=if(store.cloudSession!=null && store.entries.any{it.id==entry.id}){{history=listOf("Загружаем историю…");store.cloudHistory?.invoke("entry_${entry.id}"){history=it}}}else null)}
+        onHistory=if(store.cloudSession!=null && store.entries.any{it.id==entry.id}){{history=listOf("Загружаем историю…");store.cloudHistory?.invoke("entry_${entry.id}"){history=it}}}else null,
+        calendarActions=if(store.entries.any{it.id==entry.id} && store.cloudSession!=null) {{
+            CalendarExportActions(entry,store.cloudSession.authUid)
+            if(entry.who==store.viewer || entry.who==Person.BOTH)EntryReminderSettings(entry,store.cloudSession.authUid)
+            if(entry.visibility==Visibility.SHARED)TextButton({editor=null;planChat=ChatTarget("entry_${entry.id}",entry.title,itemId=entry.id)}){Text("Обсудить в чате")}
+        }} else null)}
     detail?.let {opened->
         val entry=store.entries.find{it.id==opened.id}?.redactFor(store.viewer) ?: opened
         AlertDialog(onDismissRequest={detail=null},title={Text(entry.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -133,13 +149,33 @@ import java.time.LocalDate
         Text(entry.date?.let(::fullDayLabel) ?: "На неделе, без дня")
         if(entry.start.isNotEmpty()){Text("${entry.start}–${entry.end}")}
         if(entry.note.isNotBlank()){Text(entry.note)}
+        entry.proposal?.let { p ->
+            HorizontalDivider()
+            Text("Предложение: ${personLabel(p.proposedBy)}",style=MaterialTheme.typography.titleSmall)
+            Text("${fullDayLabel(p.date)} · ${p.start}–${p.end}")
+            if(p.title!=entry.title)Text(p.title)
+            if(p.note.isNotBlank())Text(p.note)
+            Text("До подтверждения действует прежнее время.",style=MaterialTheme.typography.bodySmall)
+        }
+        InvitationAcceptButton(entry,{store.acceptInvitation(it);detail=null})
+        if(entry.canAccept(store.viewer))TextButton({store.respondInvitation(entry,false);detail=null}){
+            Text(if(entry.proposal!=null)"Отклонить изменения" else "Отказаться")
+        }
+        if(entry.invite in listOf(InviteState.PENDING,InviteState.ACCEPTED) && entry.visibility==Visibility.SHARED)
+            TextButton({detail=null;proposalEditor=entry}){Text("Предложить изменения")}
+
+        store.cloudSession?.let {
+            if(entry.visibility!=Visibility.BUSY || entry.owner==store.viewer)CalendarExportActions(entry,it.authUid)
+            if((entry.who==store.viewer || entry.who==Person.BOTH) && (entry.visibility!=Visibility.BUSY || entry.owner==store.viewer))EntryReminderSettings(entry,it.authUid)
+        }
+        if(store.cloudSession!=null && entry.visibility==Visibility.SHARED)TextButton({detail=null;planChat=ChatTarget("entry_${entry.id}",entry.title,itemId=entry.id)}){Text("Обсудить в чате")}
+
         if(entry.invite!=InviteState.NONE && store.cloudSession==null)Text("Пример приглашения · обмен пока недоступен",color=colors.onSurfaceVariant)
         if(store.cloudSession!=null)TextButton({
             history=listOf("Загружаем историю…")
             store.cloudHistory?.invoke("entry_${entry.id}"){history=it}
         }){Text("История изменений")}
-        InvitationAcceptButton(entry,{store.acceptInvitation(it);detail=null})
-        if(entry.invite==InviteState.ACCEPTED)Text("Приглашение принято",color=colors.primary)
+        if(entry.invite==InviteState.ACCEPTED)Text(if(entry.proposal==null)"Приглашение принято" else "Принято прежнее время · изменения ожидают ответа",color=colors.primary)
         if(entry.isGathering && entry.invite==InviteState.PENDING && entry.gatheringError()==null)GatheringNotificationPreview(entry)
     }},confirmButton={TextButton({detail=null}){Text("Понятно")}},dismissButton={
         if(store.canDelete(entry))TextButton({store.deleteEntry(entry);detail=null}){Text("Удалить",color=colors.error)}
@@ -243,7 +279,8 @@ import java.time.LocalDate
                     AccessIcon(entry, onHelp)
                 }
                 Text(entry.title, Modifier.fillMaxWidth().clickable { onOpen(entry) }.padding(vertical = 5.dp), fontWeight = FontWeight.Medium)
-                if(entry.isTentative) Text(if(entry.incoming) "Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(viewer.other())}", style = MaterialTheme.typography.labelSmall, color = colors.primary)
+                if(entry.isTentative || entry.proposal!=null) Text(if(entry.canAccept(viewer)) "Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(viewer.other())}", style = MaterialTheme.typography.labelSmall, color = colors.primary)
+                if(entry.proposal!=null)Text("Предложено другое время",style=MaterialTheme.typography.labelSmall,color=colors.primary)
                 if(entry.kind == Kind.TASK && entry.canEdit(viewer)) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(entry.done, { onDone(entry) }); Text("Выполнено", style=MaterialTheme.typography.labelSmall) }
             }
         }
@@ -256,6 +293,6 @@ import java.time.LocalDate
 
 @Composable fun InvitationAcceptButton(entry:Entry,onAccept:(Entry)->Unit,modifier:Modifier=Modifier) {
     if(entry.canAccept(LocalDemoIdentity.current.viewer)) {
-        TextButton({onAccept(entry)},modifier.semantics{contentDescription="Принять приглашение «${entry.title}»"}){Text("Принять")}
+        TextButton({onAccept(entry)},modifier.semantics{contentDescription="Принять приглашение «${entry.title}»"}){Text(if(entry.proposal!=null)"Подтвердить изменения" else "Принять")}
     }
 }

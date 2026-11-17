@@ -6,7 +6,7 @@ const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const dep=createRequire(path.join(process.env.KOTIKI_FIREBASE_TOOLS,'package.json'));
 const {initializeTestEnvironment,assertSucceeds,assertFails}=dep('@firebase/rules-unit-testing');
-const {doc,setDoc,getDoc,getDocs,collection,query,where,writeBatch,serverTimestamp,disableNetwork,enableNetwork}=dep('firebase/firestore');
+const {doc,setDoc,getDoc,getDocs,collection,query,where,writeBatch,deleteDoc,serverTimestamp,disableNetwork,enableNetwork}=dep('firebase/firestore');
 let env;
 const uids=['user-one','user-two'];
 const space={uids,roles:{'user-one':'USER_1','user-two':'USER_2'},names:{USER_1:'User 1',USER_2:'User 2'}};
@@ -17,7 +17,7 @@ function entry(id,changes={}){return {id,title:'Plan',date:'2026-11-17',week:'20
 function envelope(data,actor='user-one',changes={}){return {type:'entry',owner:'user-one',readers:data.visibility==='SHARED'?uids:['user-one'],shared:data.visibility==='SHARED',data,deleted:false,revision:crypto.randomUUID(),updatedAt:serverTimestamp(),actor,...changes};}
 function projection(e){return !e.deleted && e.data.visibility==='BUSY'?{owner:e.owner,revision:e.revision,active:true,...Object.fromEntries(['date','lastDate','week','start','end','who','kind'].map(k=>[k,e.data[k]]))}:{owner:e.owner,revision:e.revision,active:false};}
 function write(client,id,e,{history=true,busy=true}={}){const b=writeBatch(client);b.set(ref(client,id),e);if(history)b.set(doc(client,root+'/records/'+id+'/revisions/'+e.revision),e);if(busy&&e.type==='entry')b.set(doc(client,root+'/busy/'+id),projection(e));return b.commit();}
-before(async()=>{env=await initializeTestEnvironment({projectId:'demo-shared-organizer',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync(path.resolve('backend/firestore.rules'),'utf8')}});});
+before(async()=>{env=await initializeTestEnvironment({projectId:'demo-shared-organizer',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync(path.resolve(process.env.KOTIKI_RULES_FILE || 'backend/firestore.rules'),'utf8')}});});
 beforeEach(async()=>{await env.clearFirestore();await env.withSecurityRulesDisabled(async c=>{await setDoc(doc(c.firestore(),root),space);for(const uid of uids)await setDoc(doc(c.firestore(),'members/'+uid),{spaceId:'home'});});});
 after(async()=>{await env?.cleanup();});
 test('non-members and anonymous clients cannot read or write organizer data',async()=>{const a=db('user-one');await write(a,'one',envelope(entry('one')));for(const c of [db('outsider'),env.unauthenticatedContext().firestore()]){await assertFails(getDoc(ref(c,'one')));await assertFails(write(c,'other',envelope(entry('other'),'outsider')));await assertFails(getDoc(doc(c,root)));}});
@@ -25,7 +25,14 @@ test('users cannot grant themselves membership or impersonate the other owner',a
 test('shared records synchronize to second authorized client',async()=>{await assertSucceeds(write(db('user-one'),'one',envelope(entry('one'))));const r=await assertSucceeds(getDoc(ref(db('user-two'),'one')));assert.equal(r.data().data.title,'Plan');const q=query(collection(db('user-two'),root+'/records'),where('readers','array-contains','user-two'));assert.equal((await assertSucceeds(getDocs(q))).size,1);});
 test('private record and its history are unreadable by other participant',async()=>{const e=envelope(entry('secret',{visibility:'PRIVATE'}));await write(db('user-one'),'secret',e);await assertFails(getDoc(ref(db('user-two'),'secret')));await assertFails(getDoc(doc(db('user-two'),root+'/records/secret/revisions/'+e.revision)));await assertFails(getDoc(doc(db('user-two'),root+'/busy/secret')));});
 test('busy projection contains schedule only, not title or comments',async()=>{const e=envelope(entry('busy',{visibility:'BUSY'}));await write(db('user-one'),'busy',e);const p=(await assertSucceeds(getDoc(doc(db('user-two'),root+'/busy/busy')))).data();assert.equal(p.active,true);assert.equal(p.start,'19:00');assert.equal(p.title,undefined);assert.equal(p.note,undefined);await assertFails(getDoc(ref(db('user-two'),'busy')));});
-test('owner can revoke shared visibility and old history access',async()=>{const a=db('user-one'),b=db('user-two'),e=envelope(entry('one'));await write(a,'one',e);await write(a,'one',envelope(entry('one',{visibility:'PRIVATE'})));await assertFails(getDoc(ref(b,'one')));await assertFails(getDoc(doc(b,root+'/records/one/revisions/'+e.revision)));});
+test('visibility is fixed at creation for every role and access mode',async()=>{
+ const a=db('user-one');
+ for(const visibility of ['SHARED','PRIVATE','BUSY']){
+  const id='fixed-'+visibility;await write(a,id,envelope(entry(id,{visibility})));
+  for(const next of ['SHARED','PRIVATE','BUSY'].filter(v=>v!==visibility))await assertFails(write(a,id,envelope(entry(id,{visibility:next}))));
+  await assertSucceeds(write(a,id,envelope(entry(id,{visibility,title:'Changed content'}))));
+ }
+});
 test('read-only shared records reject edits by other participant',async()=>{await write(db('user-one'),'one',envelope(entry('one',{editable:false})));await assertFails(write(db('user-two'),'one',envelope(entry('one',{editable:false,title:'Changed'}),'user-two')));});
 test('collaborator can edit content but not access flags or owner',async()=>{const a=db('user-one'),b=db('user-two');await write(a,'one',envelope(entry('one')));await assertSucceeds(write(b,'one',envelope(entry('one',{title:'Changed'}),'user-two')));await assertFails(write(b,'one',envelope(entry('one',{editable:false}),'user-two')));await assertFails(write(b,'one',envelope(entry('one',{visibility:'PRIVATE'}),'user-two')));});
 test('recipient can accept a read-only invitation, without modifying its time',async()=>{const a=db('user-one'),b=db('user-two'),e=entry('invite',{invite:'PENDING',editable:false});await write(a,'invite',envelope(e));await assertFails(write(b,'invite',envelope({...e,invite:'ACCEPTED',start:'18:00'},'user-two')));await assertSucceeds(write(b,'invite',envelope({...e,invite:'ACCEPTED',resolvedDay:'2026-11-17'},'user-two')));await assertFails(write(b,'invite',envelope({...e,invite:'PENDING'},'user-two')));});
@@ -98,4 +105,237 @@ test('owner can undo deletion of an accepted invitation without changing its det
  await write(a,'accepted',envelope(accepted,'user-one',{deleted:true}));
  await assertSucceeds(write(a,'accepted',envelope(accepted)));
  await assertFails(write(a,'accepted',envelope({...accepted,start:'18:00'})));
+});
+
+function proposal(id='offer-one',proposedBy='USER_2',changes={}){
+ return {id,proposedBy,title:'Moved meeting',date:'2026-12-03',lastDate:'2026-12-03',start:'20:00',end:'21:00',note:'A counterproposal',...changes};
+}
+function proposalResponse(base,accept=true){
+ const {proposal:p,...rest}=base;
+ return {...rest,...(accept?{title:p.title,date:p.date,lastDate:p.lastDate,week:'2026-11-30',start:p.start,end:p.end,note:p.note,invite:'ACCEPTED',resolvedDay:'2026-11-18'}:{}),proposalResponseId:p.id};
+}
+async function acceptedMeeting(id='meeting'){
+ const a=db('user-one'),b=db('user-two');
+ const pending=entry(id,{invite:'PENDING',editable:false});
+ await write(a,id,envelope(pending));
+ const accepted={...pending,invite:'ACCEPTED',resolvedDay:'2026-11-17'};
+ await write(b,id,envelope(accepted,'user-two'));
+ return {a,b,accepted};
+}
+
+test('read-only accepted meeting can receive a proposal without moving agreed time',async()=>{
+ const {a,b,accepted}=await acceptedMeeting();
+ const offered={...accepted,proposal:proposal()};
+ await assertSucceeds(write(b,'meeting',envelope(offered,'user-two')));
+ const saved=(await getDoc(ref(a,'meeting'))).data().data;
+ assert.equal(saved.date,accepted.date);assert.equal(saved.start,accepted.start);assert.equal(saved.invite,'ACCEPTED');
+ await assertFails(write(b,'meeting',envelope({...proposalResponse(offered),proposalResponseId:'offer-one'},'user-two')));
+ await assertSucceeds(write(a,'meeting',envelope(proposalResponse(offered))));
+ const moved=(await getDoc(ref(b,'meeting'))).data().data;
+ assert.equal(moved.date,'2026-12-03');assert.equal(moved.start,'20:00');assert.equal(moved.proposalResponseId,'offer-one');
+});
+
+test('rejecting a proposal preserves the accepted meeting and its resolution date',async()=>{
+ const {a,b,accepted}=await acceptedMeeting();const offered={...accepted,proposal:proposal()};
+ await write(b,'meeting',envelope(offered,'user-two'));
+ await assertFails(write(a,'meeting',envelope({...proposalResponse(offered,false),invite:'DECLINED'})));
+ await assertSucceeds(write(a,'meeting',envelope(proposalResponse(offered,false))));
+ const saved=(await getDoc(ref(b,'meeting'))).data().data;
+ assert.deepEqual(saved,{...accepted,proposalResponseId:'offer-one'});
+});
+
+test('counter-counterproposal requires the other participant and cannot accept stale version',async()=>{
+ const {a,b,accepted}=await acceptedMeeting();
+ const first={...accepted,proposal:proposal()};await write(b,'meeting',envelope(first,'user-two'));
+ const second={...accepted,proposal:proposal('offer-two','USER_1')};await write(a,'meeting',envelope(second));
+ await assertFails(write(a,'meeting',envelope(proposalResponse(second))));
+ // Same date/time is intentional: only the response marker distinguishes these versions.
+ await assertFails(write(b,'meeting',envelope({...proposalResponse(second),proposalResponseId:'offer-one'},'user-two')));
+ await assertFails(write(b,'meeting',envelope({...proposalResponse(second),proposalResponseId:''},'user-two')));
+ await assertSucceeds(write(b,'meeting',envelope(proposalResponse(second),'user-two')));
+ await assertFails(write(b,'meeting',envelope(proposalResponse(second),'user-two')));
+});
+
+test('proposal cannot spoof its author, change access, reuse id or bypass confirmation',async()=>{
+ const {a,b,accepted}=await acceptedMeeting();
+ await assertFails(write(b,'meeting',envelope({...accepted,proposal:proposal('spoof','USER_1')},'user-two')));
+ await assertFails(write(b,'meeting',envelope({...accepted,editable:true,proposal:proposal()},'user-two')));
+ await assertFails(write(a,'meeting',envelope({...accepted,start:'18:00',proposal:proposal('own','USER_1')})));
+ const offered={...accepted,proposal:proposal()};await write(b,'meeting',envelope(offered,'user-two'));
+ await assertFails(write(b,'meeting',envelope({...offered,proposal:proposal('offer-one','USER_2',{start:'19:30'})},'user-two')));
+ await assertFails(write(a,'meeting',envelope({...proposalResponse(offered),start:'18:00'})));
+ await assertFails(write(a,'meeting',envelope({...proposalResponse(offered),owner:'USER_2'})));
+});
+
+test('pending invitation counterproposal is answered by original author; rejecting does not decline invitation',async()=>{
+ const a=db('user-one'),b=db('user-two'),pending=entry('pending',{invite:'PENDING'});
+ await write(a,'pending',envelope(pending));
+ const offered={...pending,proposal:proposal()};await write(b,'pending',envelope(offered,'user-two'));
+ await assertFails(write(b,'pending',envelope({...pending,invite:'ACCEPTED'},'user-two')));
+ await assertSucceeds(write(a,'pending',envelope(proposalResponse(offered,false))));
+ const rejected=proposalResponse(offered,false);
+ assert.equal((await getDoc(ref(b,'pending'))).data().data.invite,'PENDING');
+ await assertSucceeds(write(b,'pending',envelope({...rejected,invite:'ACCEPTED',resolvedDay:'2026-11-18'},'user-two')));
+});
+
+test('invalid proposal fields and pre-answered creation are denied',async()=>{
+ const {b,accepted}=await acceptedMeeting();
+ for(const invalid of [proposal('bad','BOTH'),proposal('bad','USER_2',{start:'29:00'}),proposal('bad','USER_2',{end:'19:00'}),proposal('bad','USER_2',{date:''}),proposal('bad','USER_2',{title:''})]){
+  await assertFails(write(b,'meeting',envelope({...accepted,proposal:invalid},'user-two')));
+ }
+ await assertFails(write(db('user-one'),'new',envelope(entry('new',{invite:'PENDING',proposal:proposal('new','USER_1')}))));
+ await assertFails(write(db('user-one'),'new2',envelope(entry('new2',{invite:'PENDING',proposalResponseId:'forged'}))));
+});
+
+async function entryChat(client,itemId){
+ return setDoc(doc(client,root+'/chats/entry_'+itemId),{type:'entry',collectionId:'',itemId,createdBy:'user-one',createdAt:serverTimestamp()});
+}
+
+test('entry chat allows both members only while matching parent is active and shared',async()=>{
+ const a=db('user-one'),b=db('user-two');const data=entry('talk');
+ await write(a,'entry_talk',envelope(data));
+ await assertSucceeds(entryChat(a,'talk'));
+ await setDoc(msgRef(a,'message','entry_talk'),message());
+ await assertSucceeds(getDoc(doc(b,root+'/chats/entry_talk')));
+ await assertSucceeds(getDoc(msgRef(b,'message','entry_talk')));
+ await assertSucceeds(setDoc(msgRef(b,'reply','entry_talk'),message('user-two')));
+ await assertFails(entryChat(a,'missing'));
+ await assertFails(getDoc(msgRef(db('outsider'),'message','entry_talk')));
+});
+
+test('entry chat remains shared when an attempted visibility change is rejected',async()=>{
+ const a=db('user-one'),b=db('user-two');const data=entry('fixed-chat');
+ await write(a,'entry_fixed-chat',envelope(data));await entryChat(a,'fixed-chat');
+ await setDoc(msgRef(a,'message','entry_fixed-chat'),message());
+ await assertFails(write(a,'entry_fixed-chat',envelope({...data,visibility:'PRIVATE'})));
+ await assertSucceeds(getDoc(msgRef(b,'message','entry_fixed-chat')));
+});
+
+test('deleted entry and busy-only entry cannot expose or accept chat messages',async()=>{
+ const a=db('user-one'),b=db('user-two');const data=entry('deleted-chat');
+ await write(a,'entry_deleted-chat',envelope(data));await entryChat(a,'deleted-chat');
+ await setDoc(msgRef(a,'message','entry_deleted-chat'),message());
+ await write(a,'entry_deleted-chat',envelope(data,'user-one',{deleted:true}));
+ await assertFails(getDoc(doc(b,root+'/chats/entry_deleted-chat')));
+ await assertFails(getDoc(msgRef(b,'message','entry_deleted-chat')));
+ await assertFails(setDoc(msgRef(a,'later','entry_deleted-chat'),message()));
+ await write(a,'entry_busy-chat',envelope(entry('busy-chat',{visibility:'BUSY'})));
+ await assertFails(entryChat(a,'busy-chat'));
+});
+
+test('entry-chat metadata cannot alias another document type or use a nonempty collection',async()=>{
+ const a=db('user-one');
+ const data={id:'fake',name:'List',shared:true,owner:'USER_1',updatedAt:1,items:[]};
+ await write(a,'entry_fake',envelope(data,'user-one',{type:'list',shared:true,readers:uids}));
+ await assertFails(entryChat(a,'fake'));
+ await write(a,'entry_real',envelope(entry('real')));
+ await assertFails(setDoc(doc(a,root+'/chats/entry_real'),{type:'entry',collectionId:'wrong',itemId:'real',createdBy:'user-one',createdAt:serverTimestamp()}));
+ await assertFails(setDoc(doc(a,root+'/chats/entry_alias'),{type:'entry',collectionId:'',itemId:'real',createdBy:'user-one',createdAt:serverTimestamp()}));
+});
+
+test('list visibility cannot change either direction even for its owner',async()=>{
+ const a=db('user-one');
+ for(const shared of [true,false]){
+  const id=shared?'fixed-shared':'fixed-private';
+  const data={id,name:'Fixed visibility',shared,owner:'USER_1',updatedAt:1,items:[],itemIds:[]};
+  await write(a,id,envelope(data,'user-one',{type:'list',shared,readers:shared?uids:['user-one']}));
+  await assertFails(write(a,id,envelope({...data,shared:!shared},'user-one',{type:'list',shared:!shared,readers:shared?['user-one']:uids})));
+  await assertSucceeds(write(a,id,envelope({...data,name:'Renamed'},'user-one',{type:'list',shared,readers:shared?uids:['user-one']})));
+ }
+});
+
+const deviceRef=(client,uid='user-one')=>doc(client,root+'/devices/'+uid+'_installation-123456');
+const device=(uid='user-one',canonicalUid=uid)=>({authUid:uid,canonicalUid,token:'synthetic-test-token-1234567890',updatedAt:serverTimestamp()});
+test('devices are writable and readable only by their actual authenticated owner',async()=>{
+ const a=db('user-one'),b=db('user-two');
+ await assertSucceeds(setDoc(deviceRef(a),device()));
+ await assertSucceeds(getDoc(deviceRef(a)));
+ await assertFails(getDoc(deviceRef(b)));
+ await assertFails(setDoc(deviceRef(b),device('user-two')));
+ await assertFails(deleteDoc(deviceRef(b)));
+ await assertFails(setDoc(deviceRef(a),device('user-one','user-two')));
+ await delegate('anon-one','user-one');
+ const delegated=db('anon-one');
+ await assertSucceeds(setDoc(deviceRef(delegated,'anon-one'),device('anon-one','user-one')));
+ await assertFails(getDoc(deviceRef(a,'anon-one')));
+ await assertFails(getDoc(deviceRef(delegated)));
+ await assertSucceeds(deleteDoc(deviceRef(delegated,'anon-one')));
+ await assertSucceeds(deleteDoc(deviceRef(a)));
+});
+
+const queueRef=(client,id)=>doc(client,root+'/pushQueue/'+id);
+function recordQueue(id,e){return {kind:'record',recordId:id,revision:e.revision,chatId:'',messageId:'',actor:e.actor,createdAt:serverTimestamp()};}
+function writeAndQueue(client,id,e,queueChanges={}){
+ const batch=writeBatch(client);
+ batch.set(ref(client,id),e).set(doc(client,root+'/records/'+id+'/revisions/'+e.revision),e)
+  .set(doc(client,root+'/busy/'+id),projection(e)).set(queueRef(client,e.revision),{...recordQueue(id,e),...queueChanges});
+ return batch.commit();
+}
+test('record pushQueue requires the actual atomically-written revision and cannot be read or rewritten',async()=>{
+ const a=db('user-one'),b=db('user-two');const e=envelope(entry('queued'));
+ await assertSucceeds(writeAndQueue(a,'queued',e));
+ await assertFails(getDoc(queueRef(a,e.revision)));
+ await assertFails(getDoc(queueRef(b,e.revision)));
+ await assertFails(setDoc(queueRef(a,e.revision),recordQueue('queued',e)));
+ await assertFails(deleteDoc(queueRef(a,e.revision)));
+ const next=envelope(entry('queued',{title:'Updated'}));
+ await assertFails(writeAndQueue(a,'queued',next,{actor:'user-two'}));
+ await assertFails(writeAndQueue(a,'queued',next,{revision:e.revision}));
+ await assertFails(writeAndQueue(a,'queued',next,{recordId:'unrelated'}));
+ await assertSucceeds(writeAndQueue(a,'queued',next));
+});
+
+test('standalone and spoofed record pushQueue cannot manufacture changes',async()=>{
+ const a=db('user-one'),b=db('user-two');const e=envelope(entry('unqueued'));
+ await write(a,'unqueued',e);
+ await assertFails(setDoc(queueRef(a,e.revision),recordQueue('unqueued',e)));
+ await assertFails(setDoc(queueRef(b,e.revision),{...recordQueue('unqueued',e),actor:'user-two'}));
+ await assertFails(setDoc(queueRef(a,'made-up'),{...recordQueue('unqueued',e),revision:'made-up'}));
+});
+
+test('chat pushQueue requires the actual message in the same atomic batch',async()=>{
+ const a=db('user-one'),b=db('user-two');await chat(a);
+ const id='queued-message';const event={kind:'chat',recordId:'',revision:'',chatId:'general',messageId:id,actor:'user-one',createdAt:serverTimestamp()};
+ await assertFails(setDoc(queueRef(a,id),event));
+ const batch=writeBatch(a);batch.set(msgRef(a,id),message()).set(queueRef(a,id),event);
+ await assertSucceeds(batch.commit());
+ await assertFails(getDoc(queueRef(b,id)));
+ const wrong=writeBatch(b);wrong.set(msgRef(b,'spoof-queue'),message('user-two'))
+  .set(queueRef(b,'spoof-queue'),{...event,messageId:'spoof-queue',actor:'user-one'});
+ await assertFails(wrong.commit());
+ const legitimate=writeBatch(b);legitimate.set(msgRef(b,'reply-queue'),message('user-two'))
+  .set(queueRef(b,'reply-queue'),{...event,messageId:'reply-queue',actor:'user-two'});
+ await assertSucceeds(legitimate.commit());
+});
+
+test('collaborator cannot delete or restore a shared editable entry',async()=>{
+ const a=db('user-one'),b=db('user-two'),data=entry('owner-delete');
+ await write(a,'owner-delete',envelope(data));
+ await assertFails(write(b,'owner-delete',envelope(data,'user-two',{deleted:true})));
+ await assertSucceeds(write(a,'owner-delete',envelope(data,'user-one',{deleted:true})));
+ await assertFails(write(b,'owner-delete',envelope(data,'user-two')));
+ await assertSucceeds(write(a,'owner-delete',envelope(data)));
+});
+
+test('collaborator cannot delete or restore a shared list',async()=>{
+ const a=db('user-one'),b=db('user-two');
+ const data={id:'owner-list',name:'Shared list',shared:true,owner:'USER_1',updatedAt:1,items:[],itemIds:[]};
+ const wrap=(actor,deleted=false)=>envelope(data,actor,{type:'list',shared:true,readers:uids,deleted});
+ await write(a,'owner-list',wrap('user-one'));
+ await assertFails(write(b,'owner-list',wrap('user-two',true)));
+ await assertSucceeds(write(a,'owner-list',wrap('user-one',true)));
+ await assertFails(write(b,'owner-list',wrap('user-two')));
+ await assertSucceeds(write(a,'owner-list',wrap('user-one')));
+});
+
+test('logout is idempotent for missing own device but cannot delete another device path',async()=>{
+ const a=db('user-one'),b=db('user-two');
+ await assertSucceeds(deleteDoc(deviceRef(a)));
+ await assertFails(deleteDoc(deviceRef(b)));
+ await assertFails(deleteDoc(deviceRef(db('outsider'),'outsider')));
+ await delegate('anon-one','user-one');
+ const delegated=db('anon-one');
+ await assertSucceeds(deleteDoc(deviceRef(delegated,'anon-one')));
+ await assertFails(deleteDoc(deviceRef(a,'anon-one')));
+ await assertFails(deleteDoc(deviceRef(delegated)));
 });

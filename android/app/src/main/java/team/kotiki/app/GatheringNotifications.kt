@@ -18,7 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
-data class GatheringNotificationTarget(val id:String,val profile:String)
+data class GatheringNotificationTarget(val id:String,val profile:String="",val authUid:String="",val chatId:String="",val collectionId:String="",val itemId:String="")
 
 object GatheringNotifications {
     const val CHANNEL="gathering_invitations"
@@ -26,7 +26,13 @@ object GatheringNotifications {
     private const val PROFILE="gathering_profile"
 
     fun target(intent:Intent?):GatheringNotificationTarget? {
-        val id=intent?.getStringExtra(ENTRY) ?: return null
+        if(intent==null)return null
+        LocalReminders.target(intent)?.let {return GatheringNotificationTarget(it.entryId,authUid=it.authUid)}
+        intent.getStringExtra("push_auth_uid")?.let { uid ->
+            return GatheringNotificationTarget(intent.getStringExtra("push_record_id").orEmpty().removePrefix("entry_"),authUid=uid,
+                chatId=intent.getStringExtra("push_chat_id").orEmpty(),collectionId=intent.getStringExtra("push_collection_id").orEmpty(),itemId=intent.getStringExtra("push_item_id").orEmpty())
+        }
+        val id=intent.getStringExtra(ENTRY) ?: return null
         val profile=intent.getStringExtra(PROFILE) ?: return null
         return GatheringNotificationTarget(id,profile)
     }

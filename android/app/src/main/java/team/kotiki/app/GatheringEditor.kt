@@ -20,7 +20,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /** A gathering is always a timed, shared invitation for both participants. */
-@Composable fun GatheringEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit) {
+@Composable fun GatheringEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,calendarActions:(@Composable ()->Unit)?=null) {
     val context=LocalContext.current
     var title by rememberSaveable(original.id){mutableStateOf(original.title)}
     var note by rememberSaveable(original.id){mutableStateOf(original.note)}
@@ -58,7 +58,13 @@ import java.time.LocalTime
                         OutlinedButton({pickTime(end,start.ifEmpty{"20:00"}){end=it}},Modifier.weight(1f)){Text(if(end.isEmpty())"Время окончания" else "Конец $end")}
                     }
                     Text("Выбери дату, время начала и окончания. Приглашение будет ждать подтверждения второго участника.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации. Push-уведомления будут подключены отдельно." else "В демоверсии сохраняется только на этом телефоне. Отправка второму участнику пока недоступна.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации. Уведомление придёт, если они разрешены на его телефоне." else "В демоверсии сохраняется только на этом телефоне. Отправка второму участнику пока недоступна.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(calendarActions!=null) {
+                        HorizontalDivider()
+                        val calendarDirty=title.trim()!=original.title || note.trim()!=original.note || date!=original.date?.toString() || start!=original.start || end!=original.end
+                        if(calendarDirty)Text("Сначала сохрани изменения, затем обнови копию в календаре.",style=MaterialTheme.typography.bodySmall)
+                        else calendarActions()
+                    }
                 }
                 error?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
                 HorizontalDivider()

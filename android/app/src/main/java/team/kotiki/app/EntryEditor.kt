@@ -22,8 +22,8 @@ import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
 import java.time.LocalTime
 
-@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null) {
-    if(original.isGathering){GatheringEditor(original,onDismiss,onSave);return}
+@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null,calendarActions:(@Composable ()->Unit)?=null,isNew:Boolean=false) {
+    if(original.isGathering){GatheringEditor(original,onDismiss,onSave,calendarActions);return}
     val context=LocalContext.current
     val viewer=LocalDemoIdentity.current.viewer
     val cloud=LocalCloudMode.current
@@ -44,6 +44,11 @@ import java.time.LocalTime
     val titleTarget=remember {BringIntoViewRequester()}
     val dateTarget=remember {BringIntoViewRequester()}
     LaunchedEffect(title,date,last,timed,start,end,kind) {error=""}
+    val calendarDraft=original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=if(kind==Kind.TASK)date else last ?: date,
+        week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
+        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,
+        visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable)
+
     fun pickDate(current:LocalDate?,onPick:(LocalDate)->Unit) {
         val day=current ?: LocalDate.now()
         DatePickerDialog(context,{_,y,m,d->onPick(LocalDate.of(y,m+1,d))},day.year,day.monthValue-1,day.dayOfMonth).show()
@@ -89,10 +94,15 @@ import java.time.LocalTime
                 if(error.isNotEmpty() && error!="Укажи название")Text(error,color=MaterialTheme.colorScheme.error)
                 }
                 if(original.invite==InviteState.NONE) {
-                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it;if(!it){who=viewer;editable=false}},enabled=!LocalCloudMode.current || original.owner==viewer);Text("Видно всем")}
+                    if(isNew)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it;if(!it){who=viewer;editable=false}},enabled=!LocalCloudMode.current || original.owner==viewer);Text("Видно всем")}
                     Row(verticalAlignment=Alignment.CenterVertically){Checkbox(editable,{editable=it},enabled=shared && (!LocalCloudMode.current || original.owner==viewer));Text("Совместное редактирование")}
-                    if(!shared)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(busy,{busy=it});Text("Показывать занятость")}
+                    if(isNew && !shared)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(busy,{busy=it});Text("Показывать занятость")}
                 } else Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации." else "Сохранится только пример на этом телефоне. Другой участник не получит приглашение.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(calendarActions!=null) {
+                    HorizontalDivider()
+                    if(calendarDraft!=original)Text("Сначала сохрани изменения, затем обнови копию в календаре.",style=MaterialTheme.typography.bodySmall)
+                    else calendarActions()
+                }
                 }
                 if(onHistory!=null)TextButton(onHistory){Text("История изменений")}
                 HorizontalDivider()
@@ -108,7 +118,7 @@ import java.time.LocalTime
                     if(error.isNotEmpty())scope.launch {if(error=="Укажи название")titleTarget.bringIntoView() else dateTarget.bringIntoView()}
                     if(error.isEmpty())onSave(original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=finalLast,
                         week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
-                        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable))
+                        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable))
                 },modifier=Modifier.fillMaxWidth()){Text(if(original.invite==InviteState.NONE || LocalCloudMode.current)"Сохранить" else "Сохранить пример")}
             }
         }

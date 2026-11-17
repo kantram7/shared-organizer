@@ -37,7 +37,8 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
     private fun end(){operations=(operations-1).coerceAtLeast(0);pendingChanged()}
     private fun valid(target:ChatTarget)=target.id=="general" && target.collectionId.isEmpty() && target.itemId.isEmpty() ||
         target.collectionId.isNotBlank() && target.itemId.isNotBlank() &&
-            target.id=="plan_${target.collectionId}_${target.itemId}" && !target.id.contains('/')
+            target.id=="plan_${target.collectionId}_${target.itemId}" && !target.id.contains('/') ||
+        target.collectionId.isEmpty() && target.itemId.isNotBlank() && target.id=="entry_${target.itemId}" && !target.id.contains('/')
 
     private fun ensureChat(target:ChatTarget,ready:()->Unit,failed:(Exception?)->Unit) {
         if(closed)return
@@ -49,7 +50,7 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
             db.runTransaction { transaction->
                 val old=transaction.get(ref)
                 if(!old.exists())transaction.set(ref,mapOf(
-                    "type" to if(target.id=="general")"general" else "plan",
+                    "type" to if(target.id=="general")"general" else if(target.id.startsWith("entry_"))"entry" else "plan",
                     "collectionId" to target.collectionId,"itemId" to target.itemId,
                     "createdBy" to session.uid,"createdAt" to FieldValue.serverTimestamp()))
                 true
@@ -113,10 +114,13 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
         ensureChat(target,{
             val payload=mapOf("sender" to session.uid,"actor" to session.authUid,"role" to session.viewer.name,
                 "text" to body,"createdAt" to FieldValue.serverTimestamp(),"clientTime" to System.currentTimeMillis(),"deleted" to false)
-            val task=root.document(target.id).collection("messages").document().set(payload)
+            val message=root.document(target.id).collection("messages").document()
+            val task=db.batch().set(message,payload).set(root.parent!!.collection("pushQueue").document(message.id),mapOf(
+                "kind" to "chat","recordId" to "","revision" to "","chatId" to target.id,"messageId" to message.id,
+                "actor" to session.authUid,"createdAt" to FieldValue.serverTimestamp())).commit()
             onQueued()
             task.addOnCompleteListener {result->
-                if(!closed){end();if(!result.isSuccessful)onFailure(messageFor(result.exception))}
+                if(!closed){end();if(!result.isSuccessful)onFailure(messageFor(result.exception)) else AndroidPush.wake(com.google.firebase.FirebaseApp.getInstance().applicationContext)}
             }
         },{error->end();onFailure(messageFor(error))})
     }

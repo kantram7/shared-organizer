@@ -12,6 +12,7 @@ import java.util.UUID
 
 /** UI store: isolated local demo or authenticated cloud-backed content. */
 class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession:CloudSession?=null) {
+    val appContext=context.applicationContext
     val preset = if(cloudSession==null)LocalTestPreset.load(context) else null
     val viewer = cloudSession?.viewer ?: preset?.let { fixture ->
         selectedUser?.also { require(it != Person.BOTH) } ?: runCatching {
@@ -41,6 +42,10 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
         private set
 
     var cloudStatus by mutableStateOf("Подключаемся…")
+    var cloudOnline by mutableStateOf(false)
+    var lastSyncedAt by mutableStateOf(prefs.getLong("lastSyncedAt",0))
+        private set
+    fun markSynced(){lastSyncedAt=System.currentTimeMillis();prefs.edit().putLong("lastSyncedAt",lastSyncedAt).apply()}
     var cloudError by mutableStateOf("")
     var cloudPending by mutableStateOf(false)
     var chatPending by mutableStateOf(false)
@@ -134,21 +139,26 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     fun upsert(entry: Entry) {
         if(entry.isGathering)require(entry.gatheringError()==null){entry.gatheringError() ?: "Некорректный общий сбор"}
         val i = entries.indexOfFirst { it.id == entry.id }
-        if (i >= 0) entries[i] = entry else entries.add(entry)
+        if (i >= 0) entries[i] = entry.copy(visibility=entries[i].visibility) else entries.add(entry)
         save()
     }
-    fun acceptInvitation(entry:Entry) {
+    fun acceptInvitation(entry:Entry) { respondInvitation(entry,true) }
+    fun respondInvitation(entry:Entry,accept:Boolean) {
         val index=entries.indexOfFirst{it.id==entry.id}
         if(index<0)return
         val original=entries[index]
-        if(!original.canAccept(viewer))return
-        val accepted=original.copy(invite=InviteState.ACCEPTED,resolvedDay=LocalDate.now())
-        entries[index]=accepted;save()
-        if(cloudSession!=null){undoAction=null;return}
-        undoAction=UndoAction("Приглашение принято на этом устройстве") {
-            val current=entries.indexOfFirst{it.id==accepted.id}
-            if(current>=0 && entries[current]==accepted)entries[current]=original
+        val updated=InviteWorkflow.respond(original,viewer,accept,entry.proposal?.id,LocalDate.now()) ?: return
+        entries[index]=updated;save();undoAction=null
+        if(cloudSession==null)undoAction=UndoAction("Ответ сохранён на этом устройстве") {
+            val current=entries.indexOfFirst{it.id==updated.id}
+            if(current>=0 && entries[current]==updated)entries[current]=original
         }
+    }
+    fun proposeInvitation(original:Entry,candidate:Entry) {
+        val index=entries.indexOfFirst{it.id==original.id}
+        if(index<0)return
+        val updated=InviteWorkflow.propose(entries[index],candidate,viewer,newId(),original.proposal?.id) ?: return
+        entries[index]=updated;save()
     }
     fun toggleDone(entry: Entry) {
         if (entry.kind != Kind.TASK || !entry.canEdit(viewer)) return
@@ -192,6 +202,10 @@ internal fun writeEntry(e: Entry) = JSONObject().apply {
     put("who", e.who.name); put("owner", e.owner.name); put("visibility", e.visibility.name); put("editable", e.editable)
     put("done", e.done); put("note", e.note); put("invite", e.invite.name); put("incoming", e.incoming)
     put("resolvedDay", e.resolvedDay?.toString() ?: ""); put("isGathering", e.isGathering)
+    if(e.proposalResponseId.isNotEmpty())put("proposalResponseId",e.proposalResponseId)
+    e.proposal?.let { p -> put("proposal", JSONObject().put("id",p.id).put("proposedBy",p.proposedBy.name)
+        .put("title",p.title).put("date",p.date.toString()).put("lastDate",p.lastDate.toString())
+        .put("start",p.start).put("end",p.end).put("note",p.note)) }
 }
 internal fun decodePerson(value: String, aliases: Map<String, String> = emptyMap()): Person =
     Person.valueOf(aliases[value] ?: value)
@@ -200,7 +214,9 @@ internal fun readEntry(j: JSONObject, roleAliases: Map<String, String>) = Entry(
     lastDate = j.date("lastDate"), start = j.optString("start"), end = j.optString("end"), kind = Kind.valueOf(j.getString("kind")),
     who = decodePerson(j.getString("who"), roleAliases), owner = decodePerson(j.getString("owner"), roleAliases), visibility = Visibility.valueOf(j.getString("visibility")),
     editable = j.optBoolean("editable", true), done = j.optBoolean("done"), note = j.optString("note"),
-    invite = InviteState.valueOf(j.optString("invite", "NONE")), incoming = j.optBoolean("incoming"), resolvedDay = j.date("resolvedDay"), isGathering = j.optBoolean("isGathering",false),
+    invite = InviteState.valueOf(j.optString("invite", "NONE")), incoming = j.optBoolean("incoming"), resolvedDay = j.date("resolvedDay"), isGathering = j.optBoolean("isGathering",false), proposalResponseId = j.optString("proposalResponseId"),
+    proposal = j.optJSONObject("proposal")?.let { p -> InviteProposal(p.getString("id"),Person.valueOf(p.getString("proposedBy")),
+        p.getString("title"),LocalDate.parse(p.getString("date")),LocalDate.parse(p.getString("lastDate")),p.getString("start"),p.getString("end"),p.getString("note")) },
 )
 internal fun writeCollection(c: DemoCollection) = JSONObject().put("id", c.id).put("name", c.name).put("shared", c.shared).put("owner", c.owner.name).put("updatedAt", c.updatedAt).put("itemIds",JSONArray(c.items.map{it.id}))
     .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked) }))

@@ -97,10 +97,29 @@ val LocalCloudMode=staticCompositionLocalOf{false}
             val store=remember{DemoStore(context,cloudSession=current)}
             val sync=remember{CloudSync(store,current,db)}
             val chats=remember{CloudChats(current){store.chatPending=it}}
+            LaunchedEffect(current.authUid){AndroidPush.register(context,current)}
+            val reminderEntries=store.entries.toList()
+            LaunchedEffect(reminderEntries,store.cloudReady) {
+                if(store.cloudReady)kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    LocalReminders.sync(context,current.authUid,reminderEntries,current.viewer)
+                }
+            }
+            var logoutPending by remember{mutableStateOf(false)}
+            var logoutError by remember{mutableStateOf(false)}
+            fun logout() {
+                if(logoutPending)return
+                logoutPending=true;logoutError=false
+                AndroidPush.unregister(context,current){ok->
+                    logoutPending=false
+                    if(ok){LocalReminders.clearProfile(context,current.authUid);auth.signOut()}else logoutError=true
+                }
+            }
             DisposableEffect(sync){sync.start();store.cloudHistory=sync::history;onDispose{sync.close();chats.close()}}
             CompositionLocalProvider(LocalDemoIdentity provides current.identity,LocalCloudMode provides true) {
                 KotikiTheme(store.theme) {
-                    if(store.cloudReady)KotikiApp(store,notificationTarget,onNotificationHandled,onSignOut={auth.signOut()},chats=chats)
+                    if(store.cloudReady)LockGate(current.authUid) { KotikiApp(store,notificationTarget,onNotificationHandled,onSignOut={logout()},chats=chats)
+                        if(logoutPending)AlertDialog(onDismissRequest={},title={Text("Выходим из аккаунта")},text={Text("Отключаем уведомления на этом телефоне. Нужен интернет.")},confirmButton={})
+                        if(logoutError)AlertDialog(onDismissRequest={logoutError=false},text={Text("Не удалось отключить уведомления. Проверь интернет и повтори выход.")},confirmButton={TextButton({logoutError=false}){Text("Понятно")}}) }
                     else Surface(Modifier.fillMaxSize()) {
                         Column(Modifier.safeDrawingPadding().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                             Text(store.cloudStatus)

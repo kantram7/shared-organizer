@@ -20,7 +20,7 @@ import java.time.temporal.ChronoUnit
     var archive by rememberSaveable { mutableStateOf(false) }
     val all=store.entries.filter { it.invite!=InviteState.NONE && it.visibleTo(store.viewer) }.map { it.copy(incoming=it.owner!=store.viewer).redactFor(store.viewer) }
     fun archived(e:Entry)=e.resolvedDay?.let { ChronoUnit.DAYS.between(it,LocalDate.now())>=store.retentionDays } ?: false
-    val direction=all.filter { it.incoming==incoming }
+    val direction=all.filter { (if(it.proposal!=null)it.canAccept(store.viewer) else it.incoming)==incoming }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeading(if(archive)"Архив" else "Приглашения",if(archive)"Назад" else "+ Создать",{if(archive)archive=false else onCreate()})
         Text(if(store.cloudSession!=null)"Приглашения вашего пространства" else "Пример приглашений · обмен пока недоступен",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -31,12 +31,12 @@ import java.time.temporal.ChronoUnit
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 FilterChip(incoming,{incoming=true},label={Text("Мне")});FilterChip(!incoming,{incoming=false},label={Text("От меня")})
             }
-            direction.filter { it.invite==InviteState.PENDING }.forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
-            if(direction.none { it.invite==InviteState.PENDING })CatEmpty("Новых приглашений пока нет",if(store.cloudSession==null)"Создать пример" else "Создать приглашение",onCreate)
+            direction.filter { it.invite==InviteState.PENDING || it.proposal!=null }.forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
+            if(direction.none { it.invite==InviteState.PENDING || it.proposal!=null })CatEmpty("Новых приглашений пока нет",if(store.cloudSession==null)"Создать пример" else "Создать приглашение",onCreate)
             HorizontalDivider(Modifier.padding(vertical=16.dp))
             Text("История",style=MaterialTheme.typography.titleMedium)
             Text("${store.retentionDays} дней после ответа",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            direction.filter { it.invite!=InviteState.PENDING && !archived(it) }.forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
+            direction.filter { it.invite!=InviteState.PENDING && it.proposal==null && !archived(it) }.forEach { InvitationCard(it,onOpen,store::acceptInvitation) }
             Spacer(Modifier.height(24.dp))
             OutlinedButton(onClick={archive=true},modifier=Modifier.fillMaxWidth()){Text("Архив приглашений")}
         }
@@ -49,7 +49,8 @@ import java.time.temporal.ChronoUnit
             if(entry.isGathering)GatheringLabel()
             Text(entry.title,style=MaterialTheme.typography.titleSmall)
             Text("${if(entry.incoming)"${personLabel(LocalDemoIdentity.current.viewer.other())} → ${personLabel(LocalDemoIdentity.current.viewer)}" else "${personLabel(LocalDemoIdentity.current.viewer)} → ${personLabel(LocalDemoIdentity.current.viewer.other())}"} · ${entry.date?.let(::dateLabel) ?: "Без дня"}",style=MaterialTheme.typography.labelSmall)
-            Text(when(entry.invite){InviteState.ACCEPTED->"Принято";InviteState.DECLINED->"Не получилось";else->if(entry.incoming)"Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(LocalDemoIdentity.current.viewer.other())}"},style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
+            if(entry.proposal!=null)Text("Изменения ожидают подтверждения",color=MaterialTheme.colorScheme.primary)
+            Text(when {entry.proposal!=null || entry.invite==InviteState.PENDING->if(entry.canAccept(LocalDemoIdentity.current.viewer))"Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(LocalDemoIdentity.current.viewer.other())}";entry.invite==InviteState.ACCEPTED->"Принято";entry.invite==InviteState.DECLINED->"Не получилось";else->""},style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -80,9 +81,14 @@ import java.time.temporal.ChronoUnit
         }
         HorizontalDivider()
         Text("Вход и уведомления",style=MaterialTheme.typography.titleMedium)
-        Text("Будут подключены на следующих этапах. В этой сборке нет блокировки PIN, отпечатка и автоматических напоминаний. Уведомление общего сбора можно проверить в его карточке.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("PIN · будет доступен позже",style=MaterialTheme.typography.bodyMedium)
-        Text("Биометрия · будет доступна позже",style=MaterialTheme.typography.bodyMedium)
+        NotificationPermissionSettings()
+        if(store.cloudSession!=null)Text(AndroidPush.registrationStatus,style=MaterialTheme.typography.bodySmall)
+        ReminderSettings()
+        Text("Блокировка защищает открытие приложения на этом телефоне.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        store.cloudSession?.let { AppLockSettings(it.authUid)
+            HorizontalDivider()
+            CalendarConnectionSettings(it.authUid)
+        }
         HorizontalDivider()
         Text("Приглашения",style=MaterialTheme.typography.titleMedium)
         OutlinedTextField(retention,{retention=it.filter(Char::isDigit).take(3)},Modifier.fillMaxWidth(),label={Text("Дней до архива")},singleLine=true)
@@ -94,7 +100,7 @@ import java.time.temporal.ChronoUnit
         if(message.isNotEmpty())Text(message,style=MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("Kotiki team ${BuildConfig.VERSION_NAME}",style=MaterialTheme.typography.labelMedium)
-        Text(if(store.cloudSession!=null)"Записи синхронизируются с Firebase. Подключение внешних календарей пока недоступно." else "Демонстрационные записи сохраняются локально. Облачного обмена и подключения календарей пока нет.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if(store.cloudSession!=null)"Записи синхронизируются с Firebase. Копии во внешних календарях обновляются по кнопке в записи." else "Демонстрационные записи сохраняются локально. Облачного обмена и подключения календарей пока нет.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
     }
 }

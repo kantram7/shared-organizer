@@ -16,6 +16,7 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
     private var inFlight=0
     private var fromCache=true
     private var busyLoaded=false
+    private var busyFromCache=true
     private var recordsPending=false
     private var busyPending=false
     fun start() {
@@ -46,15 +47,17 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
                             Person.valueOf(d.getString("who")!!),owner,Visibility.BUSY,false)
                     }
                 }} catch(_:Exception){store.cloudStatus="Не удалось прочитать занятость";return@addSnapshotListener}
-                busyLoaded=true;busyPending=snapshot.metadata.hasPendingWrites();render();status()
+                busyFromCache=snapshot.metadata.isFromCache;busyLoaded=true;busyPending=snapshot.metadata.hasPendingWrites();render();status()
             }
     }
     private fun status() {
         store.cloudPending=inFlight>0 || recordsPending || busyPending
         store.cloudReady=loaded && busyLoaded
+        store.cloudOnline=loaded && busyLoaded && !fromCache && !busyFromCache
         if(store.cloudError.isNotEmpty())return
+        if(store.cloudOnline && !store.cloudPending)store.markSynced()
         store.cloudStatus=when { !store.cloudReady->"Загружаем записи…";store.cloudPending->"Изменения ожидают синхронизации";
-            fromCache->"Локальная копия · ожидаем соединение";else->"Синхронизировано" }
+            !store.cloudOnline->"Локальная копия · ожидаем соединение";else->"Синхронизировано" }
     }
     private fun render() {
         if(!loaded)return
@@ -75,12 +78,16 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
             val ref=root.collection("records").document(record.id)
             val batch=db.batch().set(ref,payload).set(ref.collection("revisions").document(revision),payload)
             if(record.type=="entry")batch.set(root.collection("busy").document(record.id),record.projection(revision))
+            if(record.type=="entry")batch.set(root.collection("pushQueue").document(revision),mapOf(
+                "kind" to "record","recordId" to record.id,"revision" to revision,"chatId" to "","messageId" to "",
+                "actor" to session.authUid,"createdAt" to FieldValue.serverTimestamp()))
             records[record.id]=record
             inFlight++;store.cloudError="";status()
             batch.commit().addOnCompleteListener{task->
                 if(closed)return@addOnCompleteListener
                 inFlight--;if(!task.isSuccessful){store.keepFailedCloudChange(record);fail(task.exception)}
                 status()
+                if(task.isSuccessful)AndroidPush.wake(store.appContext)
             }
         }
     }

@@ -63,3 +63,9 @@ __pycache__/
 # Firebase local CLI state
 .firebase/
 .firebaserc
+
+# Cloudflare local builds and dependencies
+node_modules/
+.cloudflare/
+.wrangler/
+.dev.vars*

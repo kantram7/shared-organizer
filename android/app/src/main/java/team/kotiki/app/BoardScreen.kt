@@ -140,8 +140,8 @@ import java.time.LocalDate
                 },style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(entry.title,fontSize=13.sp,textDecoration=if(entry.done)TextDecoration.LineThrough else null)
                 if(entry.isGathering)GatheringLabel()
-                if(entry.isTentative)Text(if(entry.owner!=LocalDemoIdentity.current.viewer)"Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(LocalDemoIdentity.current.viewer.other())}",style=MaterialTheme.typography.labelSmall)
-                if(entry.invite==InviteState.ACCEPTED)Text("Принято",style=MaterialTheme.typography.labelSmall)
+                if(entry.isTentative || entry.proposal!=null)Text(if(entry.canAccept(LocalDemoIdentity.current.viewer))"Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(LocalDemoIdentity.current.viewer.other())}",style=MaterialTheme.typography.labelSmall)
+                if(entry.invite==InviteState.ACCEPTED && entry.proposal==null)Text("Принято",style=MaterialTheme.typography.labelSmall)
             }
             AccessIcon(entry,onHelp)
         }

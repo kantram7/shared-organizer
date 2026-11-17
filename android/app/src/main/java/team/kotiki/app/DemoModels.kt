@@ -33,6 +33,8 @@ data class Entry(
     val incoming: Boolean = false,
     val resolvedDay: LocalDate? = null,
     val isGathering: Boolean = false,
+    val proposal: InviteProposal? = null,
+    val proposalResponseId: String = "",
 ) : java.io.Serializable {
     val isTentative: Boolean get() = invite == InviteState.PENDING
     val isDayTask: Boolean get() = kind == Kind.TASK && start.isEmpty()
@@ -42,8 +44,8 @@ data class Entry(
     fun matches(filter: OwnerFilter, viewer: Person = Person.USER_1): Boolean = filter == OwnerFilter.ALL || who == Person.BOTH ||
         who == if (filter == OwnerFilter.MINE) viewer else viewer.other()
     fun redactFor(viewer: Person): Entry = if (owner != viewer && visibility == Visibility.BUSY)
-        copy(title = "Занято", note = "", editable = false) else this
-    fun canAccept(viewer:Person):Boolean = invite==InviteState.PENDING && owner!=viewer && visibleTo(viewer) && (who==Person.BOTH || who==viewer)
+        copy(title = "Занято", note = "", editable = false, proposal = null) else this
+    fun canAccept(viewer:Person):Boolean = InviteWorkflow.responder(this)==viewer && visibleTo(viewer)
     fun canEdit(viewer: Person = Person.USER_1): Boolean = (owner == viewer || (visibility == Visibility.SHARED && editable)) && invite == InviteState.NONE
 }
 data class CollectionItem(val id: String, val title: String, val checked: Boolean = false)
