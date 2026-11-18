@@ -1,6 +1,7 @@
 package team.kotiki.app
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,35 +32,44 @@ import java.time.LocalDate
     var selectedId by rememberSaveable(isPlans){mutableStateOf(collections.firstOrNull()?.id ?: "")}
     val selected=collections.find{it.id==selectedId} ?: collections.firstOrNull()
     var dialog by rememberSaveable {mutableStateOf<String?>(null)}
-    var deleting by remember {mutableStateOf<DemoCollection?>(null)}
+    val groupActions=rememberItemMenu()
+    var editingItem by remember {mutableStateOf<CollectionItem?>(null)}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeading(if(isPlans)"Наши планы" else "Списки",if(isPlans)"+ Тема" else "+ Список",{dialog="collection"})
-        CollectionTopics(collections,selected?.id,!isPlans,onHelp){selectedId=it}
+        CollectionTopics(collections,selected?.id,!isPlans,onHelp,onActions={selectedId=it;groupActions.expanded=true}){selectedId=it}
         selected?.let {group->
-            ScreenHeading(group.name,if(isPlans)"+ План" else "+ Пункт",{dialog="item"})
-            FlowRow {
-                TextButton({dialog="rename"}){Text("Переименовать")}
-                TextButton({deleting=group}){Text(if(isPlans)"Удалить тему" else "Удалить список",color=MaterialTheme.colorScheme.error)}
+            Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClick={groupActions.expanded=true}),verticalAlignment=Alignment.CenterVertically) {
+                Text(group.name,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                TextButton({dialog="item"}){Text(if(isPlans)"+ План" else "+ Пункт")}
+                ItemActions(group.name,{store.deleteCollection(isPlans,group.id)},groupActions,onEdit={dialog="rename"},
+                    deleteMessage="Будут удалены все записи внутри: ${group.items.size}.")
             }
-            group.items.forEach {item->
-                Surface(Modifier.fillMaxWidth().padding(bottom=7.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface) {
+            group.items.forEach {item->key(item.id) {
+                val actions=rememberItemMenu()
+                fun open(){if(isPlans)onPlanChat(ChatTarget("plan_${group.id}_${item.id}",item.title,group.id,item.id)) else editingItem=item}
+                Surface(Modifier.fillMaxWidth().padding(bottom=7.dp).combinedClickable(onClick={open()},onLongClick={actions.expanded=true}),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface) {
                     Row(Modifier.padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
                         if(!isPlans)Checkbox(item.checked,{store.toggleItem(group.id,item.id)})
                         Text(item.title,Modifier.weight(1f).padding(vertical=12.dp))
                         if(!isPlans)CollectionAccess(group,onHelp)
-                        if(isPlans)IconButton(
-                            onClick={onPlanChat(ChatTarget(id="plan_${group.id}_${item.id}",title=item.title,collectionId=group.id,itemId=item.id))},
-                            modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).semantics{contentDescription="Чат плана: ${item.title}"}
-                        ){KotikiIcon(Glyph.CHAT)}
-                        ItemActions(item.title){store.deleteItem(isPlans,group.id,item.id)}
+                        ItemActions(item.title,{store.deleteItem(isPlans,group.id,item.id)},actions,
+                            onEdit={editingItem=item},onOpen=if(isPlans){{open()}}else null)
                     }
                 }
-            }
+            }}
             if(group.items.isEmpty())CatEmpty(if(isPlans)"Здесь будут ваши планы" else "Список пока пуст",if(isPlans)"Добавить план" else "Добавить пункт"){dialog="item"}
         } ?: CatEmpty(if(isPlans)"Место для ваших идей" else "Здесь будут ваши списки",if(isPlans)"Создать тему" else "Создать список"){dialog="collection"}
         Spacer(Modifier.height(24.dp))
     }
-    dialog?.let {type->
+    editingItem?.let {opened->selected?.let {group->
+        PlanEditor(opened,onDismiss={editingItem=null},isPlan=isPlans){title,description->
+            store.updateItem(isPlans,group.id,opened.id,title,description);editingItem=null
+        }
+    }}
+    if(dialog=="item" && isPlans)PlanEditor(null,onDismiss={dialog=null}){title,description->
+        selected?.let{store.addItem(true,it.id,title,description)};dialog=null
+    }
+    dialog?.takeUnless{it=="item" && isPlans}?.let {type->
         NameDialog(title=when(type){"collection"->if(isPlans)"Новая тема планов" else "Новый список";"rename"->"Переименовать";else->if(isPlans)"Добавить план" else "Добавить пункт"},
             withVisibility=type=="collection" && !isPlans,initial=if(type=="rename")selected?.name ?: "" else "",onDismiss={dialog=null}) {name,shared->
             when(type) {
@@ -69,13 +79,10 @@ import java.time.LocalDate
             };dialog=null
         }
     }
-    deleting?.let {group->AlertDialog(onDismissRequest={deleting=null},title={Text("Удалить «${group.name}»?")},
-        text={Text("Будут удалены все записи внутри: ${group.items.size}.${if(group.shared)" Содержимое предназначено для обоих участников." else ""}")},
-        confirmButton={TextButton({store.deleteCollection(isPlans,group.id);deleting=null}){Text("Удалить")}},
-        dismissButton={TextButton({deleting=null}){Text("Отмена")}})}
+
 }
 
-@Composable private fun CollectionTopics(collections:List<DemoCollection>,selectedId:String?,showAccess:Boolean,onHelp:(String)->Unit,onSelect:(String)->Unit) {
+@Composable internal fun CollectionTopics(collections:List<DemoCollection>,selectedId:String?,showAccess:Boolean,onHelp:(String)->Unit,onActions:(String)->Unit,onSelect:(String)->Unit) {
     val measurer=rememberTextMeasurer()
     val density=LocalDensity.current
     val style=MaterialTheme.typography.labelLarge
@@ -99,9 +106,15 @@ import java.time.LocalDate
         Column {
             FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 visible.forEachIndexed {i,c->
-                    FilterChip(c.id==selectedId,{onSelect(c.id)},modifier=Modifier.width(with(density){widths[i].toDp()}),
-                        label={Text(c.name,maxLines=1,overflow=TextOverflow.Ellipsis)},
-                        trailingIcon=if(showAccess){{CollectionAccess(c,onHelp)}}else null)
+                    Surface(Modifier.width(with(density){widths[i].toDp()}).padding(vertical=4.dp)
+                        .combinedClickable(onClick={onSelect(c.id)},onLongClick={onActions(c.id)}),
+                        shape=RoundedCornerShape(10.dp),color=if(c.id==selectedId)MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                        border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                        Row(Modifier.heightIn(min=40.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Text(c.name,Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,style=style)
+                            if(showAccess)CollectionAccess(c,onHelp)
+                        }
+                    }
                 }
             }
             if(hidden.isNotEmpty())Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -132,5 +145,16 @@ import java.time.LocalDate
             keyboardActions=KeyboardActions(onDone={if(name.isNotBlank())onSave(name.trim(),shared)}))
         if(withVisibility)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it});Text("Видно всем")}
     }},confirmButton={TextButton({onSave(name.trim(),shared)},enabled=name.isNotBlank()){Text(if(initial.isEmpty())"Добавить" else "Сохранить")}},
+        dismissButton={TextButton(onDismiss){Text("Отмена")}})
+}
+
+@Composable fun PlanEditor(initial:CollectionItem?,onDismiss:()->Unit,isPlan:Boolean=true,onSave:(String,String)->Unit) {
+    var title by rememberSaveable(initial?.id){mutableStateOf(initial?.title ?: "")}
+    var description by rememberSaveable(initial?.id){mutableStateOf(initial?.description ?: "")}
+    AlertDialog(onDismissRequest=onDismiss,title={Text(if(initial==null)"Новый план" else if(isPlan)"Редактировать план" else "Редактировать пункт")},
+        text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth(),label={Text("Название")},singleLine=true)
+            if(isPlan)OutlinedTextField(description,{description=it.take(4000)},Modifier.fillMaxWidth(),label={Text("Описание")},minLines=3,maxLines=8)
+        }},confirmButton={TextButton({onSave(title.trim(),description.trim())},enabled=title.isNotBlank()){Text("Сохранить")}},
         dismissButton={TextButton(onDismiss){Text("Отмена")}})
 }

@@ -35,14 +35,14 @@ class DemoStoreTest {
         store.upsert(entry);store.deleteEntry(entry)
         assertTrue(store.entries.contains(entry));assertNull(store.undoAction)
     }
-    @Test fun deletingCollectionAndUndoRestoresItsItems() {
+    @Test fun legacyListContentsAreErasedOnUpgradeWithoutDeletingPlans() {
         val context=context();val store=DemoStore(context)
-        store.addCollection(false,"Test",false);val id=store.lists.last().id
-        store.addItem(false,id,"One");val original=store.lists.find{it.id==id}!!
-        store.deleteCollection(false,id)
-        assertFalse(DemoStore(context).lists.any{it.id==id})
-        store.restore(store.undoAction!!)
-        assertEquals(original,DemoStore(context).lists.find{it.id==id})
+        store.addCollection(false,"Retired list",false);val id=store.lists.last().id
+        store.addItem(false,id,"Discard me")
+        val planIds=store.plans.map{it.id}
+        val next=DemoStore(context)
+        assertTrue(next.lists.isEmpty());assertEquals(planIds,next.plans.map{it.id})
+        assertTrue(next.notes.notes.isEmpty())
     }
     @Test fun itemUndoPreservesSubsequentChanges() {
         val context=context();val store=DemoStore(context)
@@ -61,7 +61,7 @@ class DemoStoreTest {
         store.updateBoardOverview(false)
         val reloaded=DemoStore(context)
         assertFalse(reloaded.plans.any{!it.shared})
-        assertTrue(reloaded.lists.any{it.id==listId && !it.shared})
+        assertTrue(reloaded.lists.isEmpty())
         assertFalse(reloaded.boardOverview)
     }
     @Test fun editingThemeUpdatesPersistedRecencyButOpeningDoesNot() {
@@ -72,5 +72,24 @@ class DemoStoreTest {
         val reloaded=DemoStore(context)
         assertTrue(reloaded.plans.find{it.id==first}!!.updatedAt>reloaded.plans.find{it.id==second}!!.updatedAt)
         assertEquals(reloaded.plans.find{it.id==first}!!.updatedAt,DemoStore(context).plans.find{it.id==first}!!.updatedAt)
+    }
+
+    @Test fun plansRetainDescriptionsAndOldItemsRemainReadable() {
+        val context=context();val store=DemoStore(context)
+        store.addCollection(true,"Trip",true);val group=store.plans.last().id
+        store.addItem(true,group,"Museum","Tickets and meeting point")
+        val item=store.plans.last().items.single()
+        store.updateItem(true,group,item.id,"Museum updated","Meet at 12")
+        val loaded=DemoStore(context).plans.single{it.id==group}.items.single()
+        assertEquals(item.id,loaded.id);assertEquals("Meet at 12",loaded.description)
+        assertEquals("Museum updated",loaded.title)
+        val old=org.json.JSONObject("""{"id":"old","name":"Legacy","shared":true,"items":[{"id":"item","title":"Old item","checked":false}]}""")
+        assertEquals("",readCollection(old).items.single().description)
+        assertEquals(loaded,readCollection(writeCollection(DemoCollection("g","G",items=listOf(loaded)))).items.single())
+    }
+    @Test fun lightIsDefaultButExplicitThemeSurvives() {
+        val context=context();val store=DemoStore(context)
+        assertEquals("light",store.theme)
+        store.updateTheme("dark");assertEquals("dark",DemoStore(context).theme)
     }
 }

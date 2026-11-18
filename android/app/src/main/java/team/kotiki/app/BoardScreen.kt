@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -127,12 +128,13 @@ import java.time.LocalDate
     }
 }
 @Composable private fun OverviewRecord(entry:Entry,onOpen:(Entry)->Unit,onDone:(Entry)->Unit,onHelp:(String)->Unit,onAccept:(Entry)->Unit) {
-    Surface(Modifier.fillMaxWidth(),
+    val actions=rememberItemMenu()
+    Surface(Modifier.fillMaxWidth().combinedClickable(onClick={onOpen(entry)},onLongClick={actions.expanded=true}),
         shape=RoundedCornerShape(10.dp),color=if(entry.isGathering)gatheringTint() else participantTint(entry.who,entry.isDayTask)) {
         Column {
         Row(Modifier.alpha(if(entry.isTentative).65f else if(entry.done).55f else 1f).padding(horizontal=4.dp),verticalAlignment=Alignment.CenterVertically) {
             if(entry.kind==Kind.TASK && entry.canEdit(LocalDemoIdentity.current.viewer))Checkbox(entry.done,{onDone(entry)})
-            Column(Modifier.weight(1f).clickable{onOpen(entry)}.padding(horizontal=6.dp,vertical=8.dp)) {
+            Column(Modifier.weight(1f).padding(horizontal=6.dp,vertical=8.dp)) {
                 if(!entry.isDayTask)Text(when {
                     entry.isMultiDay->"${dateLabel(entry.date!!)} — ${dateLabel(entry.lastDate!!)}"
                     entry.start.isNotBlank()->"${entry.start}–${entry.end}"
@@ -144,6 +146,7 @@ import java.time.LocalDate
                 if(entry.invite==InviteState.ACCEPTED && entry.proposal==null)Text("Принято",style=MaterialTheme.typography.labelSmall)
             }
             AccessIcon(entry,onHelp)
+            RecordActions(entry,actions,onOpen)
         }
         InvitationAcceptButton(entry,onAccept,Modifier.padding(horizontal=10.dp))
         }

@@ -125,6 +125,14 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
         },{error->end();onFailure(messageFor(error))})
     }
 
+    fun edit(message:ChatMessage,text:String,onFailure:(String)->Unit) {
+        val body=text.trim()
+        if(closed || message.sender!=session.uid || message.deleted || body.isEmpty() || body.length>4000)return
+        begin()
+        root.document(message.chatId).collection("messages").document(message.id).update("text",body)
+            .addOnCompleteListener{r->if(!closed){end();if(!r.isSuccessful)onFailure(messageFor(r.exception))}}
+    }
+
     fun delete(message:ChatMessage,onFailure:(String)->Unit) {
         if(closed || message.sender!=session.uid || message.deleted)return
         begin()

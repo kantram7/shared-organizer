@@ -24,7 +24,7 @@ service cloud.firestore {
     }
     function dataValid(team, d) {
       return d.keys().hasOnly(['type','owner','readers','shared','data','deleted','revision','updatedAt','actor'])
-        && d.type in ['entry','plan','list'] && d.owner in team.uids
+        && d.type in ['entry','plan'] && d.owner in team.uids
         && d.deleted is bool && d.shared is bool && d.data is map
         && d.revision is string && d.revision.size() > 10 && d.revision.size() < 80
         && d.actor == request.auth.uid && d.updatedAt == request.time
@@ -138,7 +138,53 @@ service cloud.firestore {
     }
     match /spaces/{s} {
       allow get: if member(s);
-      allow list, write: if false;
+      allow list, create, delete: if false;
+      allow update: if member(s) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['names'])
+        && request.resource.data.names.diff(resource.data.names).affectedKeys().hasOnly([role(s)])
+        && request.resource.data.names[role(s)] is string
+        && request.resource.data.names[role(s)].size() > 0 && request.resource.data.names[role(s)].size() <= 40;
+      function noteGroupValid(d, id) {
+        return d.keys().hasOnly(['id','name','shared','owner','editable','archived','updatedAt'])
+          && d.id == id && d.name is string && d.name.size() > 0 && d.name.size() <= 100
+          && d.shared == true && d.owner in ['USER_1','USER_2'] && d.editable is bool
+          && d.archived is bool && d.updatedAt is int;
+      }
+      function groupForNote(d) { return getAfter(/databases/$(database)/documents/spaces/$(s)/noteGroups/$(d.groupId)).data; }
+      function noteValid(d, id) {
+        return d.keys().hasOnly(['id','groupId','title','blocks','archived','updatedAt','revision'])
+          && d.id == id && d.groupId is string && d.title is string && d.title.size() <= 200
+          && d.blocks is list && d.blocks.size() <= 200 && d.archived is bool && d.updatedAt is int
+          && d.revision is string && d.revision.size() > 10 && d.revision.size() <= 80
+          && groupForNote(d).shared == true;
+      }
+      function canEditNotes(d) { let g=groupForNote(d); return g.owner == role(s) || g.editable; }
+      match /noteGroups/{id} {
+        allow read: if member(s);
+        allow create: if member(s) && noteGroupValid(request.resource.data,id) && request.resource.data.owner == role(s);
+        allow update: if member(s) && noteGroupValid(request.resource.data,id)
+          && request.resource.data.owner == resource.data.owner && request.resource.data.shared == resource.data.shared
+          && (resource.data.owner == role(s) || (resource.data.editable && request.resource.data.editable == resource.data.editable));
+        allow delete: if false;
+      }
+      match /notes/{id} {
+        allow read: if member(s);
+        allow create: if member(s) && noteValid(request.resource.data,id)
+          && !exists(/databases/$(database)/documents/spaces/$(s)/retiredNotes/$(id))
+          && !groupForNote(request.resource.data).archived;
+        allow update: if member(s) && noteValid(request.resource.data,id)
+          && (canEditNotes(resource.data) || (request.resource.data.groupId != resource.data.groupId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupId','revision','updatedAt'])))
+          && (request.resource.data.groupId == resource.data.groupId || !groupForNote(request.resource.data).archived);
+        // Retirement stores only an ID, never text/history. It blocks stale offline clients from resurrecting a moved note.
+        allow delete: if member(s) && getAfter(/databases/$(database)/documents/spaces/$(s)/retiredNotes/$(id)).data.retired == true;
+      }
+      match /retiredNotes/{id} {
+        allow read: if member(s);
+        allow create: if member(s) && request.resource.data.keys().hasOnly(['retired']) && request.resource.data.retired == true
+          && exists(/databases/$(database)/documents/spaces/$(s)/notes/$(id))
+          && !existsAfter(/databases/$(database)/documents/spaces/$(s)/notes/$(id));
+        allow update, delete: if false;
+      }
       match /records/{id} {
         allow read: if readable(s, resource.data);
         allow create: if recordCreate(s,id,request.resource.data);
@@ -190,7 +236,9 @@ service cloud.firestore {
             && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4000;
           allow update: if member(s) && activeChat(chatId) && resource.data.sender == principal(s)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text','deleted'])
-            && request.resource.data.deleted == true && request.resource.data.text == '';
+            && !resource.data.deleted && request.resource.data.text is string
+            && ((request.resource.data.deleted == true && request.resource.data.text == '')
+              || (request.resource.data.deleted == false && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4000));
           allow delete: if false;
         }
       }

@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                 onDispose{lifecycle.removeObserver(observer)}
             }
 
-            KotikiTheme("system") {
+            KotikiTheme("light") {
                 BrandWelcome(welcome,{welcome=false}) {
                     CloudGate(notificationTarget){notificationTarget=null}
                 }

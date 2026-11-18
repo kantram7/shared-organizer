@@ -12,7 +12,7 @@ enum class Visibility { SHARED, PRIVATE, BUSY }
 enum class OwnerFilter(val label: String) { MINE("Мои"), USER_2("Пользователь 2"), ALL("Все") }
 enum class InviteState { NONE, PENDING, ACCEPTED, DECLINED }
 enum class Section(val label: String) {
-    BOARD("Доска"), PLANS("Планы"), CALENDAR("Календарь"), LISTS("Списки"), INVITES("Зовут"), CHAT("Чат"), SETTINGS("Настройки")
+    BOARD("Доска"), PLANS("Планы"), CALENDAR("Календарь"), LISTS("Заметки"), INVITES("Зовут"), CHAT("Чат"), SETTINGS("Настройки")
 }
 data class Entry(
     val id: String,
@@ -48,7 +48,7 @@ data class Entry(
     fun canAccept(viewer:Person):Boolean = InviteWorkflow.responder(this)==viewer && visibleTo(viewer)
     fun canEdit(viewer: Person = Person.USER_1): Boolean = (owner == viewer || (visibility == Visibility.SHARED && editable)) && invite == InviteState.NONE
 }
-data class CollectionItem(val id: String, val title: String, val checked: Boolean = false)
+data class CollectionItem(val id: String, val title: String, val checked: Boolean = false, val description: String = "")
 data class DemoCollection(val id: String, val name: String, val shared: Boolean = true, val items: List<CollectionItem> = emptyList(), val owner: Person = Person.USER_1, val updatedAt: Long = 0L)
 
 fun mondayOf(date: LocalDate): LocalDate = date.with(DayOfWeek.MONDAY)

@@ -28,7 +28,7 @@ val LocalCloudMode=staticCompositionLocalOf{false}
         var store by remember{mutableStateOf(DemoStore(context))}
         CompositionLocalProvider(LocalDemoIdentity provides store.identity,LocalCloudMode provides false) {
             KotikiTheme(store.theme) {
-                Column {
+                Column(Modifier.fillMaxSize().statusBarsPadding()) {
                     if(configured)TextButton({demo=false}){Text("Войти в облачный аккаунт")}
                     Box(Modifier.weight(1f)){KotikiApp(store,notificationTarget,onNotificationHandled){person->
                         context.getSharedPreferences("local_test_profiles",0).edit().putString("selected",person.name).apply()
@@ -82,7 +82,7 @@ val LocalCloudMode=staticCompositionLocalOf{false}
         onDispose{active=false;membership?.remove();workspace?.remove()}
     }
     val current=session?.takeIf{it.authUid==user?.uid}
-    KotikiTheme("system") {
+    KotikiTheme("light") {
         if(user==null)LoginScreen(auth,{demo=true})
         else if(current==null)Surface(Modifier.fillMaxSize()) {
             Column(Modifier.safeDrawingPadding().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -114,8 +114,9 @@ val LocalCloudMode=staticCompositionLocalOf{false}
                     if(ok){LocalReminders.clearProfile(context,current.authUid);auth.signOut()}else logoutError=true
                 }
             }
-            DisposableEffect(sync){sync.start();store.cloudHistory=sync::history;onDispose{sync.close();chats.close()}}
-            CompositionLocalProvider(LocalDemoIdentity provides current.identity,LocalCloudMode provides true) {
+            DisposableEffect(sync){sync.start();store.notes.start();store.cloudHistory=sync::history;onDispose{sync.close();store.notes.close();chats.close()}}
+            LaunchedEffect(current.names){store.receiveIdentity(current.identity)}
+            CompositionLocalProvider(LocalDemoIdentity provides store.identity,LocalCloudMode provides true) {
                 KotikiTheme(store.theme) {
                     if(store.cloudReady)LockGate(current.authUid) { KotikiApp(store,notificationTarget,onNotificationHandled,onSignOut={logout()},chats=chats)
                         if(logoutPending)AlertDialog(onDismissRequest={},title={Text("Выходим из аккаунта")},text={Text("Отключаем уведомления на этом телефоне. Нужен интернет.")},confirmButton={})

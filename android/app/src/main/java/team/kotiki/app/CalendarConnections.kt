@@ -16,6 +16,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.google.android.gms.common.api.ApiException
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -105,6 +107,12 @@ private fun calendarUiError(error: Throwable): String = when(error) {
     is java.security.GeneralSecurityException -> "Не удалось открыть защищённые настройки календарей."
     else -> "Не удалось подключить календарь. Проверь настройки доступа и повтори."
 }
+internal fun googleAuthorizationError(code:Int?):String = when(code) {
+    10 -> "Google не распознал это приложение. Нужно проверить Android OAuth client: пакет и сертификат подписи APK (ошибка 10)."
+    7 -> "Нет соединения с Google. Проверь интернет и повтори подключение (ошибка 7)."
+    12501,16 -> "Подключение Google отменено. Можно повторить позже."
+    else -> "Google не предоставил доступ к календарю${code?.let { " (код $it)" } ?: ""}. Проверь разрешения и настройку OAuth приложения."
+}
 private val calendarExportMutex = Mutex()
 
 /** Returns an action that authorizes ONLY the explicitly picked Google account. */
@@ -113,7 +121,7 @@ private fun rememberGoogleAuthorization(onToken: (String, String) -> Unit, onErr
     val context = LocalContext.current
     val client = remember(context) { Identity.getAuthorizationClient(context) }
     val tokenCallback by rememberUpdatedState(onToken); val errorCallback by rememberUpdatedState(onError)
-    var requestedAccount by remember { mutableStateOf<String?>(null) }
+    var requestedAccount by rememberSaveable { mutableStateOf<String?>(null) }
     fun deliver(result: AuthorizationResult) {
         val account = requestedAccount
         val token = result.accessToken
@@ -124,7 +132,7 @@ private fun rememberGoogleAuthorization(onToken: (String, String) -> Unit, onErr
     }
     val resolution = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { response ->
         if (response.resultCode != Activity.RESULT_OK || response.data == null) errorCallback("Подключение Google отменено.")
-        else try { deliver(client.getAuthorizationResultFromIntent(response.data!!)) } catch (_: Exception) { errorCallback("Google не подтвердил разрешение. Подключи аккаунт снова.") }
+        else try { deliver(client.getAuthorizationResultFromIntent(response.data!!)) } catch (e: Exception) { errorCallback(googleAuthorizationError((e as? ApiException)?.statusCode)) }
     }
     return { account ->
         requestedAccount = account
@@ -137,7 +145,7 @@ private fun rememberGoogleAuthorization(onToken: (String, String) -> Unit, onErr
                 else runCatching { resolution.launch(IntentSenderRequest.Builder(intent.intentSender).build()) }
                     .onFailure { errorCallback("Не удалось открыть согласие Google.") }
             } else deliver(result)
-        }.addOnFailureListener { errorCallback("Google Календарь не подключён. Проверь аккаунт, интернет и настройку OAuth приложения.") }
+        }.addOnFailureListener { e -> errorCallback(googleAuthorizationError((e as? ApiException)?.statusCode)) }
     }
 }
 
@@ -153,7 +161,7 @@ fun CalendarExportActions(entry: Entry, authUid: String) {
         var yandex by remember { mutableStateOf<YandexCalendarConnection?>(null) }
         var googleLinked by remember { mutableStateOf(false) }; var yandexLinked by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
-        var settings by remember { mutableStateOf(false) }; var refresh by remember { mutableIntStateOf(0) }
+        var settings by rememberSaveable { mutableStateOf(false) }; var refresh by remember { mutableIntStateOf(0) }
         var zone by remember { mutableStateOf(ZoneId.systemDefault()) }
         LaunchedEffect(refresh) {
             try {

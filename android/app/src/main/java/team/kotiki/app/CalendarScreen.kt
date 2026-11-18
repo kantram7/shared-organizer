@@ -87,7 +87,6 @@ import java.time.temporal.ChronoUnit
                 Text("Дела на день",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        GatheringLabel()
         Text(fullDayLabel(selected),Modifier.padding(bottom=10.dp),fontSize=15.sp,fontWeight=FontWeight.SemiBold)
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             records.filter { it.occursOn(selected) }.forEach { RecordCard(it,onOpen,store::toggleDone,onHelp,store::acceptInvitation) }

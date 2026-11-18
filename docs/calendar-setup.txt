@@ -42,3 +42,6 @@ https://developers.google.com/workspace/calendar/api/v3/reference/events/insert
 https://developers.google.com/workspace/calendar/api/guides/version-resources
 https://yandex.ru/support/yandex-360/customers/calendar/web/ru/data-exchange/synchronization/sync-mobile
 https://www.rfc-editor.org/rfc/rfc4791
+
+Исправления 0.3.2: открытие системного выбора аккаунта не удаляет ActivityResultLauncher из композиции; requestedAccount сохраняется через rememberSaveable, а окно настроек переживает пересоздание Activity. Отказ/ошибка OAuth не считаются успешной привязкой. Коды ошибок 10 (настройка клиента), 7 (сеть), 12501/16 (отмена) показаны отдельно.
+Официальная схема AuthorizationClient: https://developer.android.com/identity/authorization

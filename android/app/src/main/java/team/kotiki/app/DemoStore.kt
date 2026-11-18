@@ -20,7 +20,23 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
                 .getString("selected", fixture.defaultUser.name)!!).also { require(it != Person.BOTH) }
         }.getOrDefault(fixture.defaultUser)
     } ?: Person.USER_1
-    val identity = cloudSession?.identity ?: DemoIdentity(viewer, preset?.names ?: emptyMap(), preset != null)
+    var identity by mutableStateOf(cloudSession?.identity ?: DemoIdentity(viewer, preset?.names ?: emptyMap(), preset != null))
+        private set
+    val notes=NotesStore(context,viewer,cloudSession)
+    var profileError by mutableStateOf("")
+    var profilePending by mutableStateOf(false)
+    fun receiveIdentity(value:DemoIdentity){identity=value}
+    fun updateName(value:String) {
+        val name=value.trim().take(40)
+        if(name.isBlank())return
+        if(cloudSession==null){identity=identity.copy(names=identity.names+(viewer to name));prefs.edit().putString("displayName",name).apply();return}
+        profilePending=true;profileError=""
+        com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("spaces").document(cloudSession.spaceId)
+            .update("names.${viewer.name}",name).addOnCompleteListener {task->
+                profilePending=false
+                if(task.isSuccessful)identity=identity.copy(names=identity.names+(viewer to name)) else profileError="Не удалось изменить имя. Проверь подключение."
+            }
+    }
     private val prefs = context.getSharedPreferences(
         cloudSession?.let { "cloud_${it.authUid}" } ?: preset?.let { "local_preset_${it.id}_${viewer.name}" } ?: "kotiki_demo_v1", Context.MODE_PRIVATE)
     private val roleAliases: Map<String, String> = runCatching {
@@ -30,7 +46,7 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     val entries = mutableStateListOf<Entry>()
     val plans = mutableStateListOf<DemoCollection>()
     val lists = mutableStateListOf<DemoCollection>()
-    var theme by mutableStateOf(prefs.getString("theme", preset?.theme ?: "system") ?: "system")
+    var theme by mutableStateOf(prefs.getString("theme", preset?.theme ?: "light") ?: "light")
         private set
     var retentionDays by mutableStateOf(prefs.getInt("retention", preset?.retentionDays ?: 7))
         private set
@@ -62,6 +78,10 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
         prefs.edit().putString("failed_${record.id}",JSONObject(record.data).toString()).apply()
     }
     init {
+        if(cloudSession==null)prefs.getString("displayName",null)?.let{identity=identity.copy(names=identity.names+(viewer to it))}
+        if(!prefs.getBoolean("notesMigration033",false)){
+            prefs.edit().apply{prefs.all.keys.filter{it.startsWith("failed_list_")}.forEach{remove(it)};putBoolean("notesMigration033",true)}.apply()
+        }
         val data = if(cloudSession==null)prefs.getString("content", null) else null
         val loaded = data != null && runCatching {
             val json = JSONObject(data)
@@ -84,16 +104,18 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
                 collection("gifts", "Идеи подарков", false, "Книга"),
             ))
         }
+        lists.clear()
         // Shared-only plans: remove private demo themes, including old local presets.
         if (plans.removeAll { !it.shared }) save()
         // Optional local-only gallery: seed once without resurrecting later deletions.
         preset?.galleryRevision?.let {revision->
             if(prefs.getString("galleryRevision",null)!=revision) {
                 plans.addAll(preset.galleryCollections("plans").filter {candidate->candidate.shared && plans.none{it.id==candidate.id}})
-                lists.addAll(preset.galleryCollections("lists").filter {candidate->lists.none{it.id==candidate.id}})
+                // Old list gallery is retired; notes start empty.
                 save();prefs.edit().putString("galleryRevision",revision).apply()
             }
         }
+        if(cloudSession==null)save()
     }
     fun updateBoardOverview(value: Boolean) { boardOverview=value; prefs.edit().putBoolean("boardOverview",value).apply() }
     fun dismissUndo(action: UndoAction) { if(undoAction === action) undoAction=null }
@@ -169,12 +191,20 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     fun addCollection(isPlans: Boolean, name: String, shared: Boolean) {
         (if (isPlans) plans else lists).add(DemoCollection(newId(), name.trim(), isPlans || shared, owner = viewer, updatedAt=nextEdit())); save()
     }
-    fun addItem(isPlans: Boolean, id: String, title: String) {
+    fun addItem(isPlans: Boolean, id: String, title: String, description:String="") {
         val target = if (isPlans) plans else lists
         val index = target.indexOfFirst { it.id == id }
         if (index < 0) return
-        target[index] = target[index].copy(items = target[index].items + CollectionItem(newId(), title.trim()),updatedAt=nextEdit())
+        target[index] = target[index].copy(items = target[index].items + CollectionItem(newId(), title.trim(), description=description.trim().take(4000)),updatedAt=nextEdit())
         save()
+    }
+    fun updateItem(isPlans:Boolean,collectionId:String,itemId:String,title:String,description:String="") {
+        val target=if(isPlans)plans else lists
+        val index=target.indexOfFirst{it.id==collectionId && (it.shared || it.owner==viewer)}
+        if(index<0 || title.isBlank())return
+        target[index]=target[index].copy(items=target[index].items.map {
+            if(it.id==itemId)it.copy(title=title.trim().take(100),description=description.trim().take(4000)) else it
+        },updatedAt=nextEdit());save()
     }
     fun toggleItem(listId: String, itemId: String) {
         val index = lists.indexOfFirst { it.id == listId }
@@ -219,6 +249,6 @@ internal fun readEntry(j: JSONObject, roleAliases: Map<String, String>) = Entry(
         p.getString("title"),LocalDate.parse(p.getString("date")),LocalDate.parse(p.getString("lastDate")),p.getString("start"),p.getString("end"),p.getString("note")) },
 )
 internal fun writeCollection(c: DemoCollection) = JSONObject().put("id", c.id).put("name", c.name).put("shared", c.shared).put("owner", c.owner.name).put("updatedAt", c.updatedAt).put("itemIds",JSONArray(c.items.map{it.id}))
-    .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked) }))
+    .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked).put("description",it.description) }))
 internal fun readCollection(j: JSONObject) = DemoCollection(j.getString("id"), j.getString("name"), j.getBoolean("shared"),
-    j.getJSONArray("items").objects().map { CollectionItem(it.getString("id"), it.getString("title"), it.optBoolean("checked")) }, Person.valueOf(j.optString("owner", "USER_1")),j.optLong("updatedAt",0))
+    j.getJSONArray("items").objects().map { CollectionItem(it.getString("id"), it.getString("title"), it.optBoolean("checked"),it.optString("description","")) }, Person.valueOf(j.optString("owner", "USER_1")),j.optLong("updatedAt",0))

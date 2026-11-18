@@ -1,6 +1,8 @@
 package team.kotiki.app
 
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.assertIsDisplayed
@@ -36,8 +38,8 @@ class AppSmokeTest {
         compose.onNodeWithText("Наши планы").assertIsDisplayed()
         compose.onNodeWithText("Календарь").performScrollTo().performClick()
         compose.onNodeWithText("+ Событие").assertIsDisplayed()
-        compose.onNodeWithText("Списки").performScrollTo().performClick()
-        compose.onNodeWithText("+ Список").assertIsDisplayed()
+        compose.onNodeWithText("Заметки").performScrollTo().performClick()
+        compose.onNodeWithText("+ Группа").assertIsDisplayed()
         compose.onNodeWithText("Зовут").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Приглашения").assertIsDisplayed()
         compose.onNodeWithText("Настройки").assertIsDisplayed().performClick()
@@ -119,5 +121,31 @@ class AppSmokeTest {
         compose.onNodeWithText("Отправитель: $sender").assertIsDisplayed()
         compose.onNodeWithText("Получатель: $recipient").assertIsDisplayed()
         compose.onNodeWithText("Приглашение принято").assertIsDisplayed()
+    }
+
+    @Test fun recordTapShowsDetailsBeforeEditor() {
+        val store=DemoStore(compose.activity);val day=java.time.LocalDate.now()
+        store.upsert(Entry("detail-first","Details first",day,mondayOf(day),owner=store.viewer,note="Read this first"))
+        compose.activityRule.scenario.recreate();compose.mainClock.advanceTimeBy(2200)
+        compose.onNodeWithText("Details first").performScrollTo().performSemanticsAction(SemanticsActions.OnClick){it()}
+        compose.onNodeWithText("Read this first").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Закрыть редактирование").assertDoesNotExist()
+        compose.onNodeWithText("Редактировать").performClick()
+        compose.onNodeWithContentDescription("Закрыть редактирование").assertIsDisplayed()
+    }
+    @Test fun planOpensDescriptionAndCommentsThenEditing() {
+        val store=DemoStore(compose.activity)
+        store.addCollection(true,"Newest topic",true);val group=store.plans.last().id
+        store.addItem(true,group,"Plan details","Initial description")
+        compose.activityRule.scenario.recreate();compose.mainClock.advanceTimeBy(2200)
+        compose.onNodeWithText("Планы").performScrollTo().performClick()
+        compose.onNodeWithText("Plan details").performScrollTo().performClick()
+        compose.onNodeWithText("Initial description").assertIsDisplayed()
+        compose.onNodeWithText("Комментарии").assertIsDisplayed()
+        compose.onNodeWithText("Редактировать").performClick()
+        compose.onNode(hasText("Описание") and hasSetTextAction()).performTextClearance()
+        compose.onNode(hasText("Описание") and hasSetTextAction()).performTextInput("Updated description")
+        compose.onNodeWithText("Сохранить").performClick()
+        compose.onNodeWithText("Updated description").assertIsDisplayed()
     }
 }

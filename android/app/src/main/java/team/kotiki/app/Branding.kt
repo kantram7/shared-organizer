@@ -20,6 +20,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
+val LocalWelcomeVisible=staticCompositionLocalOf{false}
+
 @Composable fun BrandMark(modifier:Modifier=Modifier,withName:Boolean=false) {
     val dark=MaterialTheme.colorScheme.background.luminance()<.5f
     val resource=if(withName) {if(dark)R.drawable.ic_brand_emblem_light else R.drawable.ic_brand_emblem}
@@ -46,7 +48,7 @@ import androidx.compose.ui.unit.dp
     }
     Box(Modifier.fillMaxSize()) {
         // Prepare the screen before fading, so its first composition cannot interrupt the transition.
-        Box(if(show)Modifier.fillMaxSize().clearAndSetSemantics{} else Modifier.fillMaxSize()) {content()}
+        Box(if(show)Modifier.fillMaxSize().clearAndSetSemantics{} else Modifier.fillMaxSize()) {CompositionLocalProvider(LocalWelcomeVisible provides show){content()}}
         if(show)Surface(
             Modifier.fillMaxSize().graphicsLayer{alpha=coverAlpha.value}
                 .clickable(onClickLabel="Открыть органайзер",onClick={exiting=true}),

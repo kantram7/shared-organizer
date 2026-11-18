@@ -46,4 +46,11 @@ class CloudStoreTest {
         val e=Entry("invite","Invite",day,mondayOf(day),owner=Person.USER_2,invite=InviteState.ACCEPTED)
         assertFalse(store().canDelete(e))
     }
+
+    @Test fun planDescriptionIsIncludedInCloudPayload() {
+        val item=CollectionItem("item","Visit",description="Buy tickets")
+        val record=StoreContent(emptyList(),listOf(DemoCollection("group","Plans",items=listOf(item))),emptyList()).records(session).single()
+        val decoded=readCollection(org.json.JSONObject(record.data))
+        assertEquals(item,decoded.items.single())
+    }
 }

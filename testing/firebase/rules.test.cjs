@@ -41,7 +41,7 @@ test('record writes require matching history and busy projection atomically',asy
 test('history cannot be edited, deleted or forged without corresponding record',async()=>{const a=db('user-one'),e=envelope(entry('one'));await write(a,'one',e);const h=doc(a,root+'/records/one/revisions/'+e.revision);await assertFails(setDoc(h,{...e,data:entry('one',{title:'Forgery'})}));await assertFails(setDoc(doc(a,root+'/records/one/revisions/fake-long-revision'),{...e,revision:'fake-long-revision'}));});
 test('deletion is a tombstone with history; restore retains both versions',async()=>{const a=db('user-one'),e=entry('one');await write(a,'one',envelope(e));await write(a,'one',envelope(e,'user-one',{deleted:true}));assert.equal((await getDoc(ref(a,'one'))).data().deleted,true);await write(a,'one',envelope(e));const versions=await getDocs(query(collection(a,root+'/records/one/revisions'),where('readers','array-contains','user-one')));assert.equal(versions.size,3);});
 test('both conflicting revisions survive; last server commit becomes current',async()=>{const a=db('user-one'),b=db('user-two');await write(a,'one',envelope(entry('one')));await disableNetwork(a);const pending=write(a,'one',envelope(entry('one',{title:'Offline edit'})));await write(b,'one',envelope(entry('one',{title:'Online edit'}),'user-two'));await enableNetwork(a);await pending;assert.equal((await getDoc(ref(b,'one'))).data().data.title,'Offline edit');const history=await getDocs(query(collection(b,root+'/records/one/revisions'),where('readers','array-contains','user-two')));assert.equal(history.size,3);});
-test('plans are shared only; private lists remain owner-only',async()=>{const a=db('user-one'),b=db('user-two');const c={id:'list1',name:'List',shared:false,owner:'USER_1',updatedAt:1,items:[]};const e=envelope(c,'user-one',{type:'list',shared:false,readers:['user-one']});await assertSucceeds(write(a,'list1',e));await assertFails(getDoc(ref(b,'list1')));await assertFails(write(a,'plan1',{...e,type:'plan',revision:crypto.randomUUID()}));});
+test('legacy private lists remain readable only by owner but cannot be recreated',async()=>{const a=db('user-one'),b=db('user-two');const c={id:'list1',name:'List',shared:false,owner:'USER_1',updatedAt:1,items:[]};const e=envelope(c,'user-one',{type:'list',shared:false,readers:['user-one']});await assertFails(write(a,'list1',e));await seedLegacy('list1',e);await assertFails(getDoc(ref(b,'list1')));await assertFails(write(a,'plan1',{...e,type:'plan',revision:crypto.randomUUID()}));});
 test('member removal denies further cloud reads and writes',async()=>{const a=db('user-one');await write(a,'one',envelope(entry('one')));await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),root),{...space,uids:['user-two']}));await assertFails(getDoc(ref(a,'one')));await assertFails(write(a,'one',envelope(entry('one',{title:'Rejected'}))));});
 
 const {Timestamp}=dep('firebase/firestore');
@@ -79,7 +79,7 @@ test('message deletion is limited to its role and cannot rewrite history',async(
  const a=db('user-one'),b=db('user-two');await chat(a);await setDoc(msgRef(a),message());
  const saved=(await getDoc(msgRef(a))).data();
  await assertFails(setDoc(msgRef(b),{...saved,text:'',deleted:true}));
- await assertFails(setDoc(msgRef(a),{...saved,text:'Edited'}));
+ await assertSucceeds(setDoc(msgRef(a),{...saved,text:'Edited'}));
  await delegate('anon-one','user-one');
  await assertSucceeds(setDoc(msgRef(db('anon-one')),{...saved,text:'',deleted:true}));
 });
@@ -226,7 +226,7 @@ test('deleted entry and busy-only entry cannot expose or accept chat messages',a
 test('entry-chat metadata cannot alias another document type or use a nonempty collection',async()=>{
  const a=db('user-one');
  const data={id:'fake',name:'List',shared:true,owner:'USER_1',updatedAt:1,items:[]};
- await write(a,'entry_fake',envelope(data,'user-one',{type:'list',shared:true,readers:uids}));
+ await seedLegacy('entry_fake',envelope(data,'user-one',{type:'list',shared:true,readers:uids}));
  await assertFails(entryChat(a,'fake'));
  await write(a,'entry_real',envelope(entry('real')));
  await assertFails(setDoc(doc(a,root+'/chats/entry_real'),{type:'entry',collectionId:'wrong',itemId:'real',createdBy:'user-one',createdAt:serverTimestamp()}));
@@ -238,9 +238,9 @@ test('list visibility cannot change either direction even for its owner',async()
  for(const shared of [true,false]){
   const id=shared?'fixed-shared':'fixed-private';
   const data={id,name:'Fixed visibility',shared,owner:'USER_1',updatedAt:1,items:[],itemIds:[]};
-  await write(a,id,envelope(data,'user-one',{type:'list',shared,readers:shared?uids:['user-one']}));
+  await seedLegacy(id,envelope(data,'user-one',{type:'list',shared,readers:shared?uids:['user-one']}));
   await assertFails(write(a,id,envelope({...data,shared:!shared},'user-one',{type:'list',shared:!shared,readers:shared?['user-one']:uids})));
-  await assertSucceeds(write(a,id,envelope({...data,name:'Renamed'},'user-one',{type:'list',shared,readers:shared?uids:['user-one']})));
+  await assertFails(write(a,id,envelope({...data,name:'Renamed'},'user-one',{type:'list',shared,readers:shared?uids:['user-one']})));
  }
 });
 
@@ -317,10 +317,10 @@ test('collaborator cannot delete or restore a shared editable entry',async()=>{
  await assertSucceeds(write(a,'owner-delete',envelope(data)));
 });
 
-test('collaborator cannot delete or restore a shared list',async()=>{
+test('collaborator cannot delete or restore a shared plan',async()=>{
  const a=db('user-one'),b=db('user-two');
  const data={id:'owner-list',name:'Shared list',shared:true,owner:'USER_1',updatedAt:1,items:[],itemIds:[]};
- const wrap=(actor,deleted=false)=>envelope(data,actor,{type:'list',shared:true,readers:uids,deleted});
+ const wrap=(actor,deleted=false)=>envelope(data,actor,{type:'plan',shared:true,readers:uids,deleted});
  await write(a,'owner-list',wrap('user-one'));
  await assertFails(write(b,'owner-list',wrap('user-two',true)));
  await assertSucceeds(write(a,'owner-list',wrap('user-one',true)));
@@ -339,3 +339,50 @@ test('logout is idempotent for missing own device but cannot delete another devi
  await assertFails(deleteDoc(deviceRef(a,'anon-one')));
  await assertFails(deleteDoc(deviceRef(delegated)));
 });
+
+test('participant can change own display name but not roles or partner name',async()=>{
+ const a=db('user-one');
+ await assertSucceeds(setDoc(doc(a,root),{...space,names:{...space.names,USER_1:'New display name'}}));
+ await assertFails(setDoc(doc(a,root),{...space,names:{...space.names,USER_2:'Impersonated'}}));
+ await assertFails(setDoc(doc(a,root),{...space,roles:{'user-one':'USER_2','user-two':'USER_1'}}));
+});
+function ng(id,extra={}){return {id,name:'Shared notes',shared:true,owner:'USER_1',editable:true,archived:false,updatedAt:1,...extra};}
+function nt(id,groupId,extra={}){return {id,groupId,title:'Note',blocks:[{id:'b',kind:'CHECK',text:'Coffee',checked:false}],archived:false,updatedAt:1,revision:crypto.randomUUID(),...extra};}
+test('notes only accept shared groups and reject outsiders and private payloads',async()=>{
+ const a=db('user-one'),g=doc(a,root+'/noteGroups/g');
+ await assertFails(setDoc(g,ng('g',{shared:false})));
+ await assertSucceeds(setDoc(g,ng('g')));
+ await assertSucceeds(setDoc(doc(a,root+'/notes/n'),nt('n','g')));
+ await assertFails(getDoc(doc(db('outsider'),root+'/notes/n')));
+ await assertFails(setDoc(doc(a,root+'/notes/bad'),nt('bad','missing')));
+ await assertFails(setDoc(doc(a,root+'/notes/n/revisions/v'),{text:'history must not exist'}));
+ await assertSucceeds(getDocs(collection(db('user-two'),root+'/notes')));
+});
+test('either participant may retire a shared note and stale offline creates cannot resurrect it',async()=>{
+ const a=db('user-one'),b=db('user-two');await setDoc(doc(a,root+'/noteGroups/g'),ng('g'));
+ const data=nt('n','g');await setDoc(doc(a,root+'/notes/n'),data);
+ await assertFails(deleteDoc(doc(b,root+'/notes/n')));
+ const batch=writeBatch(b);batch.set(doc(b,root+'/retiredNotes/n'),{retired:true});batch.delete(doc(b,root+'/notes/n'));await assertSucceeds(batch.commit());
+ assert.equal((await getDoc(doc(a,root+'/notes/n'))).exists(),false);
+ await assertFails(setDoc(doc(a,root+'/notes/n'),data));
+ await assertFails(setDoc(doc(a,root+'/retiredNotes/another'),{retired:true}));
+});
+test('readonly note content is protected while moving is allowed to the partner',async()=>{
+ const a=db('user-one'),b=db('user-two');await setDoc(doc(a,root+'/noteGroups/g'),ng('g',{editable:false}));await setDoc(doc(a,root+'/noteGroups/h'),ng('h'));
+ const n=nt('n','g');await setDoc(doc(a,root+'/notes/n'),n);
+ await assertFails(setDoc(doc(b,root+'/notes/n'),{...n,title:'No'}));
+ await assertSucceeds(setDoc(doc(b,root+'/notes/n'),{...n,groupId:'h',revision:crypto.randomUUID()}));
+ await assertSucceeds(setDoc(doc(b,root+'/notes/n'),{...n,groupId:'h',archived:true}));
+});
+test('messages may be edited only by their author and deleted messages cannot be revived',async()=>{
+ const a=db('user-one'),b=db('user-two');const c=root+'/chats/general';
+ await setDoc(doc(a,c),{type:'general',collectionId:'',itemId:'',createdBy:'user-one',createdAt:serverTimestamp()});
+ const m={sender:'user-one',actor:'user-one',role:'USER_1',text:'Hello',createdAt:serverTimestamp(),clientTime:1,deleted:false};
+ await setDoc(doc(a,c+'/messages/n'),m);const existing=(await getDoc(doc(a,c+'/messages/n'))).data();
+ await assertSucceeds(setDoc(doc(a,c+'/messages/n'),{...existing,text:'Edited'}));
+ await assertFails(setDoc(doc(b,c+'/messages/n'),{...existing,text:'Spoofed'}));
+ await assertSucceeds(setDoc(doc(a,c+'/messages/n'),{...existing,text:'',deleted:true}));
+ await assertFails(setDoc(doc(a,c+'/messages/n'),{...existing,text:'Revived'}));
+});
+
+async function seedLegacy(id,e){await env.withSecurityRulesDisabled(async c=>{await setDoc(ref(c.firestore(),id),e);});}

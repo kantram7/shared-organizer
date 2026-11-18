@@ -1,6 +1,7 @@
 package team.kotiki.app
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.rememberScrollState
@@ -43,11 +44,15 @@ import java.time.temporal.ChronoUnit
     }
 }
 @Composable private fun InvitationCard(entry:Entry,onOpen:(Entry)->Unit,onAccept:(Entry)->Unit) {
-    Surface(onClick={onOpen(entry)},modifier=Modifier.fillMaxWidth().padding(vertical=6.dp),shape=RoundedCornerShape(14.dp),color=if(entry.isGathering)gatheringTint() else MaterialTheme.colorScheme.surface) {
+    val actions=rememberItemMenu()
+    Surface(modifier=Modifier.fillMaxWidth().padding(vertical=6.dp).combinedClickable(onClick={onOpen(entry)},onLongClick={actions.expanded=true}),shape=RoundedCornerShape(14.dp),color=if(entry.isGathering)gatheringTint() else MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
             InvitationAcceptButton(entry,onAccept)
             if(entry.isGathering)GatheringLabel()
-            Text(entry.title,style=MaterialTheme.typography.titleSmall)
+            Row(verticalAlignment=Alignment.Top) {
+                Text(entry.title,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall)
+                RecordActions(entry,actions,onOpen)
+            }
             Text("${if(entry.incoming)"${personLabel(LocalDemoIdentity.current.viewer.other())} → ${personLabel(LocalDemoIdentity.current.viewer)}" else "${personLabel(LocalDemoIdentity.current.viewer)} → ${personLabel(LocalDemoIdentity.current.viewer.other())}"} · ${entry.date?.let(::dateLabel) ?: "Без дня"}",style=MaterialTheme.typography.labelSmall)
             if(entry.proposal!=null)Text("Изменения ожидают подтверждения",color=MaterialTheme.colorScheme.primary)
             Text(when {entry.proposal!=null || entry.invite==InviteState.PENDING->if(entry.canAccept(LocalDemoIdentity.current.viewer))"Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(LocalDemoIdentity.current.viewer.other())}";entry.invite==InviteState.ACCEPTED->"Принято";entry.invite==InviteState.DECLINED->"Не получилось";else->""},style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
@@ -60,11 +65,14 @@ import java.time.temporal.ChronoUnit
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         ScreenHeading("Настройки")
         Text("Профиль",style=MaterialTheme.typography.titleMedium)
-        OutlinedTextField(personLabel(store.viewer),{},Modifier.fillMaxWidth(),readOnly=true,label={Text("Отображаемое имя")})
+        var name by rememberSaveable(store.identity.names){mutableStateOf(store.identity.names[store.viewer] ?: store.viewer.label)}
+        OutlinedTextField(name,{name=it.take(40)},Modifier.fillMaxWidth(),singleLine=true,label={Text("Отображаемое имя")})
+        TextButton({store.updateName(name)},enabled=name.isNotBlank()&&!store.profilePending&&name.trim()!=personLabel(store.viewer)){Text(if(store.profilePending)"Сохраняем…" else "Изменить имя")}
+        if(store.profileError.isNotBlank())Text(store.profileError,color=MaterialTheme.colorScheme.error)
         if(store.cloudSession!=null) {
             Text(store.cloudStatus,style=MaterialTheme.typography.bodySmall)
-            OutlinedButton(onSignOut,enabled=!store.cloudPending && !store.chatPending){Text("Выйти из аккаунта")}
-            if(store.cloudPending || store.chatPending)Text("Выход станет доступен после отправки изменений.",style=MaterialTheme.typography.bodySmall)
+            OutlinedButton(onSignOut,enabled=!store.cloudPending && !store.chatPending && !store.notes.pending && !store.profilePending){Text("Выйти из аккаунта")}
+            if(store.cloudPending || store.chatPending || store.notes.pending || store.profilePending)Text("Выход станет доступен после отправки изменений.",style=MaterialTheme.typography.bodySmall)
         }
         if (store.preset != null) {
             Text("Локальный тестовый профиль",style=MaterialTheme.typography.titleMedium)
@@ -79,6 +87,7 @@ import java.time.temporal.ChronoUnit
         listOf("system" to "Как на телефоне","light" to "Светлая","dark" to "Тёмная").forEach { (value,label)->
             Row(Modifier.fillMaxWidth().selectable(selected=store.theme==value,role=Role.RadioButton,onClick={store.updateTheme(value)}),verticalAlignment=Alignment.CenterVertically){RadioButton(store.theme==value,null);Text(label)}
         }
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){RadioButton(false,null,enabled=false);Text("Зимняя тема · скоро",color=MaterialTheme.colorScheme.onSurface.copy(alpha=.38f))}
         HorizontalDivider()
         Text("Вход и уведомления",style=MaterialTheme.typography.titleMedium)
         NotificationPermissionSettings()

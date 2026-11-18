@@ -16,15 +16,17 @@ import java.util.Locale
 
 @Composable fun SyncStatus(store:DemoStore) {
     var details by remember{mutableStateOf(false)}
-    val pending=store.cloudPending || store.chatPending
-    val label=when {store.cloudError.isNotEmpty()->"Ошибка связи";pending->"Отправка…";!store.cloudOnline->"Нет сети";else->"Синхронизировано"}
-    val time=if(store.lastSyncedAt>0)SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date(store.lastSyncedAt)) else "—"
+    val pending=store.cloudPending || store.chatPending || store.notes.pending || store.profilePending
+    val error=store.cloudError.ifBlank{store.notes.error.ifBlank{store.profileError}}
+    val lastTime=maxOf(store.lastSyncedAt,store.notes.lastSyncedAt)
+    val label=when {error.isNotEmpty()->"Ошибка связи";pending->"Отправка…";!store.cloudOnline->"Нет сети";else->"Синхронизировано"}
+    val time=if(lastTime>0)SimpleDateFormat("HH:mm",Locale.getDefault()).format(Date(lastTime)) else "—"
     Column(Modifier.widthIn(min=96.dp).padding(end=10.dp).clickable{details=true}
         .semantics{contentDescription="Синхронизация: $label. Последняя: $time"},horizontalAlignment=Alignment.End) {
-        Text(label,fontSize=10.sp,lineHeight=13.sp,color=if(store.cloudError.isEmpty())MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        Text(label,fontSize=10.sp,lineHeight=13.sp,color=if(error.isEmpty())MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
         Text(time,fontSize=10.sp,lineHeight=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if(details)AlertDialog(onDismissRequest={details=false},title={Text("Синхронизация")},
-        text={Text("${store.cloudStatus}\nПоследняя подтверждённая синхронизация: $time")},
+        text={Text("${error.ifBlank{if(pending)"Изменения ожидают отправки" else store.cloudStatus}}\nПоследняя подтверждённая синхронизация: $time")},
         confirmButton={TextButton({details=false}){Text("Понятно")}})
 }

@@ -3,6 +3,7 @@ package team.kotiki.app
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,9 +61,10 @@ import java.time.LocalTime
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge,color=MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment=Alignment.CenterVertically) {
+                val actions=rememberItemMenu()
+                Row(Modifier.combinedClickable(onClick={},onLongClick={if(onDelete!=null)actions.expanded=true}),verticalAlignment=Alignment.CenterVertically) {
                     Text(if(original.invite==InviteState.PENDING)if(LocalCloudMode.current)"Приглашение" else "Приглашение · демо" else if(original.title.isEmpty())"Новая запись" else "Редактирование",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
-                    if(onDelete!=null)ItemActions(original.title,onDelete)
+                    if(onDelete!=null)ItemActions(original.title,onDelete,actions)
                     IconButton(onClick=onDismiss,modifier=Modifier.semantics{contentDescription="Закрыть редактирование"}){KotikiIcon(Glyph.CLOSE)}
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {

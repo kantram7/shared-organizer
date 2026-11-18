@@ -1,6 +1,7 @@
 package team.kotiki.app
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,10 +23,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@Composable fun ChatScreen(target:ChatTarget,chats:CloudChats?,onBack:(()->Unit)?=null) {
+@Composable fun ChatScreen(target:ChatTarget,chats:CloudChats?,onBack:(()->Unit)?=null,header:(@Composable ()->Unit)?=null) {
     if(chats==null) {
         Column(Modifier.fillMaxSize()) {
             ChatHeading(target.title,onBack,if(target.collectionId.isNotBlank())"Назад к планам" else "Назад")
+            header?.invoke()
             Text("Войди в облако для переписки",Modifier.padding(vertical=20.dp))
         }
         return
@@ -41,7 +43,6 @@ import java.util.Locale
         var recoverText by rememberSaveable{mutableStateOf("")}
         var retry by remember{mutableIntStateOf(0)}
         var snapshot by remember{mutableStateOf(ChatSnapshot())}
-        var deleting by remember{mutableStateOf<ChatMessage?>(null)}
         val listState=rememberLazyListState()
         val colors=MaterialTheme.colorScheme
         fun setDraft(value:String){draft=value;prefs.edit().putString(draftKey,value).apply()}
@@ -67,6 +68,7 @@ import java.util.Locale
         }
         Column(Modifier.fillMaxSize().imePadding()) {
             ChatHeading(target.title,onBack,if(target.collectionId.isNotBlank())"Назад к планам" else "Назад")
+            header?.invoke()
             Text(when {
                 snapshot.loading->"Открываем чат…"
                 snapshot.error!=null->snapshot.error!!
@@ -81,24 +83,9 @@ import java.util.Locale
                 }
                 items(snapshot.messages,key={it.id}){message->
                     val own=message.sender==chats.session.uid
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start) {
-                        Surface(Modifier.widthIn(max=320.dp).fillMaxWidth(.94f),shape=RoundedCornerShape(14.dp),
-                            color=if(own)colors.primaryContainer else colors.secondaryContainer) {
-                            Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                                    KotikiIcon(if(message.role==Person.USER_2)Glyph.CAT_GIRL else Glyph.CAT,Modifier.size(20.dp))
-                                    Text(chats.session.names[message.role] ?: message.role.label,Modifier.weight(1f),style=MaterialTheme.typography.labelMedium,fontWeight=FontWeight.SemiBold)
-                                    Text(SimpleDateFormat("dd.MM HH:mm",Locale.getDefault()).format(Date(message.time)),style=MaterialTheme.typography.labelSmall)
-                                }
-                                Text(if(message.deleted)"Сообщение удалено" else message.text,
-                                    color=if(message.deleted)colors.onSurfaceVariant else colors.onSurface)
-                                if(message.pending)Text("Ожидает отправки",style=MaterialTheme.typography.labelSmall)
-                                if(own && !message.deleted)TextButton({deleting=message},enabled=!message.pending,
-                                    modifier=Modifier.align(Alignment.End).semantics{contentDescription="Удалить сообщение ${message.id}"},
-                                    contentPadding=PaddingValues(horizontal=4.dp,vertical=0.dp)){Text("Удалить",style=MaterialTheme.typography.labelSmall)}
-                            }
-                        }
-                    }
+                    MessageBubble(message,personLabel(message.role),own,
+                        onDelete={chats.delete(message){sendError=it}},onEdit={text->chats.edit(message,text){sendError=it}})
+
                 }
             }
             sendError?.let{Text(it,color=colors.error,style=MaterialTheme.typography.bodySmall)}
@@ -111,10 +98,7 @@ import java.util.Locale
                     contentPadding=PaddingValues(horizontal=12.dp)){Text(if(sending)"…" else "Отправить")}
             }
         }
-        deleting?.let{message->AlertDialog(onDismissRequest={deleting=null},title={Text("Удалить сообщение?")},
-            text={Text("Вместо текста останется отметка об удалении у обоих участников.")},
-            confirmButton={TextButton({deleting=null;chats.delete(message){sendError=it}}){Text("Удалить")}},
-            dismissButton={TextButton({deleting=null}){Text("Отмена")}})}
+
     }
 }
 
@@ -123,4 +107,39 @@ import java.util.Locale
         if(onBack!=null)IconButton(onBack,Modifier.semantics{contentDescription=backLabel}){KotikiIcon(Glyph.LEFT)}
         Text(title,Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
     }
+}
+
+@Composable internal fun MessageBubble(message:ChatMessage,senderName:String,own:Boolean,onDelete:()->Unit,onEdit:((String)->Unit)?=null) {
+    val colors=MaterialTheme.colorScheme
+    val actions=rememberItemMenu()
+    val actionable=own && !message.deleted && !message.pending
+    var editing by rememberSaveable{mutableStateOf(false)}
+    var text by rememberSaveable{mutableStateOf("")}
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start) {
+        Surface(Modifier.widthIn(max=340.dp).width(IntrinsicSize.Max)
+            .combinedClickable(onClick={},onLongClick={if(actionable)actions.expanded=true}),
+            shape=RoundedCornerShape(16.dp),color=if(own)colors.primaryContainer else colors.secondaryContainer) {
+            Column(Modifier.padding(horizontal=10.dp,vertical=4.dp)) {
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    KotikiIcon(if(message.role==Person.USER_2)Glyph.CAT_GIRL else Glyph.CAT,Modifier.size(18.dp))
+                    Text(senderName,Modifier.padding(start=4.dp).weight(1f),style=MaterialTheme.typography.labelMedium,color=colors.primary,maxLines=1)
+                    if(actionable)ItemActions("сообщение",onDelete,actions,
+                        onEdit=if(onEdit!=null){{text=message.text;editing=true}}else null,
+                        deleteMessage="У обоих участников останется отметка об удалении сообщения.",compactGear=true)
+                    else Spacer(Modifier.height(28.dp))
+                }
+                HorizontalDivider(color=colors.primary.copy(alpha=.15f))
+                Row(Modifier.padding(vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.Bottom) {
+                    Text(if(message.deleted)"Сообщение удалено" else message.text,Modifier.weight(1f,false),style=MaterialTheme.typography.bodyMedium,
+                        color=if(message.deleted)colors.onSurfaceVariant else colors.onSurface)
+                    Text(if(message.pending)"Отправляем…" else SimpleDateFormat("dd.MM HH:mm",Locale.getDefault()).format(Date(message.time)),
+                        style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant,maxLines=1)
+                }
+            }
+        }
+    }
+    if(editing)AlertDialog(onDismissRequest={editing=false},title={Text("Изменить сообщение")},
+        text={OutlinedTextField(text,{text=it.take(4000)},Modifier.fillMaxWidth(),minLines=2,maxLines=8)},
+        confirmButton={TextButton({onEdit?.invoke(text);editing=false},enabled=text.isNotBlank()){Text("Сохранить")}},
+        dismissButton={TextButton({editing=false}){Text("Отмена")}})
 }

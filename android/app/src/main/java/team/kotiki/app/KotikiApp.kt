@@ -3,6 +3,7 @@ package team.kotiki.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,7 @@ import java.time.LocalDate
     var detail by rememberSaveable {mutableStateOf<Entry?>(null)}
     var proposalEditor by rememberSaveable {mutableStateOf<Entry?>(null)}
     var planChat by rememberSaveable {mutableStateOf<ChatTarget?>(null)}
+    var planEditing by rememberSaveable {mutableStateOf(false)}
     var history by remember {mutableStateOf<List<String>?>(null)}
     var help by rememberSaveable {mutableStateOf<String?>(null)}
     val viewedEntry=detail ?: editor?.takeIf{candidate->store.entries.any{it.id==candidate.id}}
@@ -76,7 +78,7 @@ import java.time.LocalDate
             if(result==SnackbarResult.ActionPerformed)store.restore(undo) else store.dismissUndo(undo)
         }
     }
-    fun open(entry:Entry){if(entry.canEdit(store.viewer))editor=entry else detail=entry}
+    fun open(entry:Entry){detail=entry}
     fun gatherCats() {
         meeting=newGathering(store.viewer)
         scope.launch{drawer.close()}
@@ -85,6 +87,7 @@ import java.time.LocalDate
     BackHandler(enabled=drawer.isOpen){scope.launch{drawer.close()}}
     BackHandler(enabled=page!=Section.BOARD && editor==null && meeting==null && detail==null && help==null && !drawer.isOpen){page=Section.BOARD}
     BackHandler(enabled=planChat!=null){planChat=null}
+    CompositionLocalProvider(LocalRecordDelete provides store::deleteEntry,LocalRecordCanDelete provides store::canDelete) {
     ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=adaptive,drawerContent={
         if(adaptive)ModalDrawerSheet(Modifier.widthIn(max=320.dp).fillMaxHeight()) {
             Text("Kotiki team",Modifier.padding(20.dp),style=MaterialTheme.typography.titleLarge)
@@ -108,12 +111,30 @@ import java.time.LocalDate
                         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal=12.dp)) {
                             if(store.storageWarning)Text("Не удалось прочитать сохранённое демо",color=colors.error,style=MaterialTheme.typography.labelSmall)
                             pages.SaveableStateProvider(page.name) {
-                                if(planChat!=null)ChatScreen(planChat!!,chats,onBack={planChat=null})
+                                if(planChat!=null) {
+                                    val target=planChat!!
+                                    val plan=store.plans.find{it.id==target.collectionId}?.items?.find{it.id==target.itemId}
+                                    if(target.collectionId.isNotBlank() && plan==null) {
+                                        Text("План удалён или больше недоступен")
+                                        TextButton({planChat=null}){Text("Назад к планам")}
+                                    } else ChatScreen(target.copy(title=plan?.title ?: target.title),chats,onBack={planChat=null},header=if(plan!=null){{
+                                        val actions=rememberItemMenu()
+                                        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClick={actions.expanded=true}),verticalAlignment=Alignment.Top) {
+                                            Column(Modifier.weight(1f).heightIn(max=160.dp).verticalScroll(rememberScrollState())) {
+                                                Text("Описание",style=MaterialTheme.typography.labelLarge)
+                                                Text(plan.description.ifBlank{"Описание пока не добавлено"},style=MaterialTheme.typography.bodyMedium)
+                                            }
+                                            ItemActions(plan.title,{store.deleteItem(true,target.collectionId,target.itemId);planChat=null},actions)
+                                        }
+                                        TextButton({planEditing=true}){Text("Редактировать")}
+                                        Text("Комментарии",style=MaterialTheme.typography.titleSmall)
+                                    }}else null)
+                                }
                                 else when(page) {
                                     Section.BOARD->BoardScreen(store,::open,{editor=it},{help=it})
                                     Section.PLANS->CollectionsScreen(store,true,onPlanChat={store.preparePlanChat();planChat=it}){help=it}
                                     Section.CALENDAR->CalendarScreen(store,::open,{editor=it},{help=it})
-                                    Section.LISTS->CollectionsScreen(store,false){help=it}
+                                    Section.LISTS->NotesScreen(store.notes){help=it}
                                     Section.INVITES->InvitationsScreen(store,{detail=it},{val today=LocalDate.now();editor=Entry(newId(),"",today,mondayOf(today),kind=Kind.EVENT,owner=store.viewer,invite=InviteState.PENDING)})
                                     Section.CHAT->ChatScreen(ChatTarget("general","Общий чат"),chats)
                                     Section.SETTINGS->SettingsScreen(store,onProfile,onSignOut)
@@ -124,6 +145,13 @@ import java.time.LocalDate
                 }
                 SnackbarHost(snackbar,Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
             }
+        }
+    }
+    }
+    if(planEditing)planChat?.let{target->
+        val item=store.plans.find{it.id==target.collectionId}?.items?.find{it.id==target.itemId}
+        if(item!=null)PlanEditor(item,onDismiss={planEditing=false}){title,description->
+            store.updateItem(true,target.collectionId,target.itemId,title,description);planEditing=false
         }
     }
     proposalEditor?.let {original -> ProposalEditor(original,onDismiss={proposalEditor=null},onPropose={store.proposeInvitation(original,it);proposalEditor=null}) }
@@ -139,7 +167,11 @@ import java.time.LocalDate
         }} else null)}
     detail?.let {opened->
         val entry=store.entries.find{it.id==opened.id}?.redactFor(store.viewer) ?: opened
-        AlertDialog(onDismissRequest={detail=null},title={Text(entry.title)},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        val actions=rememberItemMenu()
+        AlertDialog(onDismissRequest={detail=null},title={Row(Modifier.combinedClickable(onClick={},onLongClick={actions.expanded=true}),verticalAlignment=Alignment.Top) {
+            Text(entry.title,Modifier.weight(1f))
+            ItemActions(entry.title,if(store.canDelete(entry)){{store.deleteEntry(entry);detail=null}}else null,actions)
+        }},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         if(entry.invite!=InviteState.NONE) {
             Text("Отправитель: ${personLabel(entry.owner)}")
             Text("Получатель: ${personLabel(entry.owner.other())}")
@@ -179,8 +211,8 @@ import java.time.LocalDate
         }){Text("История изменений")}
         if(entry.invite==InviteState.ACCEPTED)Text(if(entry.proposal==null)"Приглашение принято" else "Принято прежнее время · изменения ожидают ответа",color=colors.primary)
         if(entry.isGathering && entry.invite==InviteState.PENDING && entry.gatheringError()==null)GatheringNotificationPreview(entry)
-    }},confirmButton={TextButton({detail=null}){Text("Понятно")}},dismissButton={
-        if(store.canDelete(entry))TextButton({store.deleteEntry(entry);detail=null}){Text("Удалить",color=colors.error)}
+    }},confirmButton={TextButton({detail=null}){Text("Закрыть")}},dismissButton={
+        if(entry.canEdit(store.viewer))TextButton({detail=null;editor=entry}){Text("Редактировать")}
     })}
     history?.let {rows->AlertDialog(onDismissRequest={history=null},title={Text("История изменений")},
         text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -260,7 +292,8 @@ import java.time.LocalDate
 @Composable fun RecordCard(entry: Entry, onOpen: (Entry) -> Unit, onDone: (Entry) -> Unit, onHelp: (String) -> Unit, onAccept:(Entry)->Unit) {
     val viewer = LocalDemoIdentity.current.viewer
     val colors = MaterialTheme.colorScheme
-    Surface(Modifier.fillMaxWidth(),
+    val actions=rememberItemMenu()
+    Surface(Modifier.fillMaxWidth().combinedClickable(onClick={onOpen(entry)},onLongClick={actions.expanded=true}),
         shape = RoundedCornerShape(if (entry.isDayTask) 10.dp else 15.dp),
         border = if(entry.isGathering)androidx.compose.foundation.BorderStroke(1.dp,gatheringAccent().copy(alpha=.55f)) else null,
         color = if(entry.isGathering)gatheringTint() else participantTint(entry.who, entry.isDayTask)) {
@@ -269,9 +302,10 @@ import java.time.LocalDate
         if (entry.isDayTask) {
             Row(Modifier.padding(start = 2.dp, end = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (entry.canEdit(viewer)) Checkbox(checked = entry.done, onCheckedChange = { onDone(entry) }, modifier = Modifier.size(42.dp))
-                Text(entry.title, Modifier.weight(1f).clickable { onOpen(entry) }.padding(vertical = 9.dp), fontSize = 13.sp,
+                Text(entry.title, Modifier.weight(1f).padding(vertical = 9.dp), fontSize = 13.sp,
                     textDecoration = if(entry.done) TextDecoration.LineThrough else null)
                 AccessIcon(entry, onHelp)
+                RecordActions(entry,actions,onOpen)
             }
         } else {
             Column(Modifier.padding(10.dp)) {
@@ -279,8 +313,9 @@ import java.time.LocalDate
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(when { entry.isMultiDay -> "${dateLabel(entry.date!!)} — ${dateLabel(entry.lastDate!!)}"; entry.start.isNotBlank() -> "${entry.start}–${entry.end}"; else -> "Весь день" }, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     AccessIcon(entry, onHelp)
+                RecordActions(entry,actions,onOpen)
                 }
-                Text(entry.title, Modifier.fillMaxWidth().clickable { onOpen(entry) }.padding(vertical = 5.dp), fontWeight = FontWeight.Medium)
+                Text(entry.title, Modifier.fillMaxWidth().padding(vertical = 5.dp), fontWeight = FontWeight.Medium)
                 if(entry.isTentative || entry.proposal!=null) Text(if(entry.canAccept(viewer)) "Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(viewer.other())}", style = MaterialTheme.typography.labelSmall, color = colors.primary)
                 if(entry.proposal!=null)Text("Предложено другое время",style=MaterialTheme.typography.labelSmall,color=colors.primary)
                 if(entry.kind == Kind.TASK && entry.canEdit(viewer)) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(entry.done, { onDone(entry) }); Text("Выполнено", style=MaterialTheme.typography.labelSmall) }
