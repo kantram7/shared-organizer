@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
                 .setApiKey(config.getString("apiKey")).setGcmSenderId(config.optString("messagingSenderId").ifBlank{config.getString("applicationId").split(":").getOrNull(1).orEmpty()}).build()
             com.google.firebase.FirebaseApp.initializeApp(this,options)
         }
+        RemoteDesigns.attach(this)
         enableEdgeToEdge()
         if(Build.VERSION.SDK_INT>=31)splashScreen.setOnExitAnimationListener{it.remove()}
         setContent {

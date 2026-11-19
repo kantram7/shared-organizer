@@ -4,7 +4,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -30,17 +30,26 @@ private val Dark = darkColorScheme(
     secondary = Color(0xFF8BD5C9), secondaryContainer = Color(0xFF223F3C), onSecondaryContainer = Color(0xFFB4E9E0),
 )
 @Composable fun KotikiTheme(theme: String, content: @Composable () -> Unit) {
-    val dark = when (theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
+    val inherited=LocalWinterDesign.current
+    val winter=if(BuildConfig.DEBUG && BuildConfig.WINTER_PREVIEW) theme=="winter" else inherited?.enabled==true || RemoteDesigns.winterEnabled
+    val design=remember(winter){WinterDesignState(winter)}
+    val dark = !winter && when (theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
         view.context.findActivity()?.window?.let { window ->
+            // Keep Android's buttons/gesture handle; only remove the system panel's scrim.
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
             }
         }
     }
-    MaterialTheme(colorScheme = if (dark) Dark else Light, content = content)
+    CompositionLocalProvider(LocalWinterDesign provides (inherited?.takeIf{it.enabled} ?: design)) {
+        MaterialTheme(colorScheme = if(winter) WinterColors else if (dark) Dark else Light, content = content)
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? = when(this) {
@@ -57,12 +66,12 @@ private tailrec fun Context.findActivity(): Activity? = when(this) {
         Person.USER_2 -> Color(0xFFC493AC)
         Person.BOTH -> Color(0xFF83B3A3)
     }
-    return lerp(colors.surface,accent,if(compactTask) .24f else .13f)
+    return winterSurface(lerp(colors.surface,accent,if(compactTask) .24f else .13f))
 }
 
 
-@Composable fun gatheringAccent():Color = if(MaterialTheme.colorScheme.background.luminance()<.5f)Color(0xFFF0ABC3) else Color(0xFF99536C)
-@Composable fun gatheringTint():Color = lerp(MaterialTheme.colorScheme.surface,gatheringAccent(),.13f)
+@Composable fun gatheringAccent():Color = if(winterDesignEnabled())Color(0xFF88769C) else if(MaterialTheme.colorScheme.background.luminance()<.5f)Color(0xFFF0ABC3) else Color(0xFF99536C)
+@Composable fun gatheringTint():Color = winterSurface(lerp(MaterialTheme.colorScheme.surface,gatheringAccent(),.13f))
 @Composable fun GatheringLabel() {
     androidx.compose.foundation.layout.Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement=androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {

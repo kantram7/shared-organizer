@@ -6,8 +6,8 @@ import java.security.MessageDigest
 
 class AppLockTest {
     @Test fun pinAllowsFourToTwelveAsciiDigitsAndKeepsExistingSixDigitPins(){
-        listOf("0987","098765","123456789012").forEach{assertTrue(PinPolicy.valid(it))}
-        listOf("123","1234567890123","12 456","１２３４５６","abcdef","").forEach{assertFalse(PinPolicy.valid(it))}
+        listOf("0987","12345","098765").forEach{assertTrue(PinPolicy.valid(it))}
+        listOf("123","1234567","123456789012","1234567890123","12 456","１２３４５６","abcdef","").forEach{assertFalse(PinPolicy.valid(it))}
     }
     @Test fun derivationUsesSaltAndRejectsWrongPin(){
         val salt=ByteArray(32){it.toByte()}

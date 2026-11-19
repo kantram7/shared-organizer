@@ -46,7 +46,7 @@ internal class ReminderPreferences(context: Context) {
     }
     fun setPreference(uid: String, id: String, value: EntryReminderPreference) {
         require(value.minutesBefore in 0..10080); LocalTime.parse(value.dayTime)
-        prefs.edit().putString("setting_" + reminderIdentity(uid,id), JSONObject().put("enabled",value.enabled).put("minutes",value.minutesBefore).put("time",value.dayTime).toString()).apply()
+        check(prefs.edit().putString("setting_" + reminderIdentity(uid,id), JSONObject().put("enabled",value.enabled).put("minutes",value.minutesBefore).put("time",value.dayTime).toString()).commit()) { "Reminder preference could not be saved" }
     }
     fun snapshot(uid: String): JSONObject? = prefs.getString(profile(uid),null)?.let { runCatching { JSONObject(it) }.getOrNull() }
     fun profiles(): Set<String> = prefs.getStringSet("active_profiles",emptySet()).orEmpty().toSet()
@@ -159,9 +159,9 @@ object LocalReminders {
             putExtra(EXTRA_AUTH_UID,uid);putExtra(EXTRA_ENTRY_ID,entry.id)
         }
         val pending=PendingIntent.getActivity(context,0,launch,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val public=NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_calendar).setContentTitle("Напоминание")
+        val public=NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw).setContentTitle("Напоминание")
             .setContentText("Открой приложение, чтобы посмотреть подробности").build()
-        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_calendar).setContentTitle(entry.title)
+        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw).setContentTitle(entry.title)
             .setContentText(entry.date?.let(::fullDayLabel).orEmpty() + if(entry.start.isNotBlank()) " · ${entry.start}" else "")
             .setCategory(NotificationCompat.CATEGORY_REMINDER).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public).setContentIntent(pending).setAutoCancel(true)

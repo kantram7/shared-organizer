@@ -1,6 +1,9 @@
 package team.kotiki.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -42,17 +45,20 @@ import java.time.temporal.ChronoUnit
             IconButton(onClick={monthText=month.plusMonths(1).toString()},modifier=Modifier.semantics{contentDescription="Следующий месяц"}){KotikiIcon(Glyph.RIGHT)}
         }
         TextButton({monthText=YearMonth.from(today).toString();dayText=today.toString()}) {Text("Сегодня")}
-        Row { listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс").forEach { Text(it,Modifier.weight(1f),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+        Row(Modifier.padding(horizontal=2.dp)) { listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс").forEach { Text(it,Modifier.weight(1f),fontSize=11.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
         repeat(6) { row ->
             val first=start.plusDays(row*7L)
             val last=first.plusDays(6)
-            Column(Modifier.padding(vertical=4.dp)) {
+            Column(Modifier.padding(vertical=4.dp).testTag("calendar-week-$row").clip(RoundedCornerShape(14.dp))
+                .background(layeredSurface(if(winterDesignEnabled()).32f else .72f))
+                .border(1.dp,MaterialTheme.colorScheme.outlineVariant.copy(alpha=.65f),RoundedCornerShape(14.dp)).padding(horizontal=2.dp,vertical=4.dp)) {
                 Row {
                     repeat(7) { index ->
                         val date=first.plusDays(index.toLong())
                         val entries=records.filter { it.occursOn(date) && !it.isMultiDay }
                         Column(Modifier.weight(1f).height(49.dp).clip(RoundedCornerShape(9.dp))
-                            .background(if(date==selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background)
+                            .background(if(date==selected)MaterialTheme.colorScheme.primaryContainer.copy(alpha=.85f) else Color.Transparent)
+                            .then(if(date==today)Modifier.border(1.dp,MaterialTheme.colorScheme.primary,RoundedCornerShape(9.dp))else Modifier)
                             .clickable { dayText=date.toString() }.alpha(if(YearMonth.from(date)==month)1f else .4f),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
                             Text(date.dayOfMonth.toString(),fontSize=12.sp,color=if(date==today)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground)
                             Row(Modifier.height(13.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(2.dp)) {
@@ -75,7 +81,6 @@ import java.time.temporal.ChronoUnit
                     }
                 }
             }
-            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
         }
         FlowRow(Modifier.padding(vertical=10.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -89,7 +94,8 @@ import java.time.temporal.ChronoUnit
         }
         Text(fullDayLabel(selected),Modifier.padding(bottom=10.dp),fontSize=15.sp,fontWeight=FontWeight.SemiBold)
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            records.filter { it.occursOn(selected) }.forEach { RecordCard(it,onOpen,store::toggleDone,onHelp,store::acceptInvitation) }
+            val dayEntries=records.filter { it.occursOn(selected) }
+            dayEntries.forEachIndexed { index,entry -> RecordCard(entry,onOpen,store::toggleDone,onHelp,store::acceptInvitation,compact=true,iceSpace=if(index==dayEntries.lastIndex)12.dp else 0.dp) }
             if(records.none { it.occursOn(selected) })Text("На этот день пока ничего нет",style=MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(24.dp))

@@ -1,0 +1,149 @@
+<div id="kw-forest-preview" class="viz-dotted-background">
+<style>
+#kw-forest-preview{padding:12px 0;font-family:Arial,sans-serif;color:#33485e}
+#kw-forest-preview *{box-sizing:border-box}
+#kw-forest-preview button{font:inherit;color:inherit;cursor:pointer}
+#kw-forest-preview .app{position:relative;isolation:isolate;max-width:560px;margin:auto;background:#eaf2f9;border-radius:24px;overflow:hidden;box-shadow:0 8px 36px #38557918;min-height:860px}
+#kw-forest-preview .forest{position:absolute;inset:0;overflow:hidden;z-index:-1;background:linear-gradient(145deg,#f4f7fc 6%,#deecf6 65%,#d4e5f0)}
+#kw-forest-preview .tree{position:absolute;bottom:10%;width:160px;height:460px;opacity:.5;filter:drop-shadow(0 5px 4px #527e9910)}
+#kw-forest-preview .tree b{position:absolute;left:50%;bottom:0;height:90%;width:5px;background:#94abbc;transform:translateX(-50%)}
+#kw-forest-preview .branch{position:absolute;left:0;width:100%;height:47%;background:#83a6bb;clip-path:polygon(50% 0,65% 31%,61% 31%,86% 67%,79% 66%,100% 100%,72% 94%,50% 100%,23% 94%,0 100%,22% 66%,15% 67%,39% 31%,35% 31%)}
+#kw-forest-preview .branch:after{content:"";position:absolute;inset:0;background:#f7fbfe;clip-path:polygon(50% 0,66% 33%,56% 29%,50% 34%,43% 28%,35% 33%,19% 63%,36% 56%,50% 64%,65% 56%,82% 64%,100% 100%,77% 85%,65% 90%,50% 83%,36% 91%,24% 84%,0 100%)}
+#kw-forest-preview .bank{position:absolute;bottom:-35px;left:-30%;width:160%;height:160px;border-radius:50%;background:#f4faffb8;transform:rotate(-8deg)}
+#kw-forest-preview .header{display:flex;align-items:center;gap:16px;padding:18px 20px;background:#f8fbff99;border-bottom:1px solid #d6e3ed;position:relative;z-index:3}
+#kw-forest-preview .brandcat{width:44px;height:44px;color:#79568f}
+#kw-forest-preview .brand{font-weight:600;font-size:17px}
+#kw-forest-preview .sync{margin-left:auto;text-align:right;font-size:11px;color:#63768b;line-height:1.5}
+#kw-forest-preview .shell{display:grid;grid-template-columns:86px minmax(0,1fr);min-height:790px}
+#kw-forest-preview nav{display:flex;flex-direction:column;gap:8px;padding:12px 5px;background:#ffffff91;border-right:1px solid #d7e4ee;z-index:3}
+#kw-forest-preview .navitem{border:0;background:transparent;min-height:75px;border-radius:18px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font-size:11px;line-height:1.2;padding:8px 2px;color:#716186}
+#kw-forest-preview .navitem svg{width:27px;height:27px;stroke-width:1.7}
+#kw-forest-preview .navitem.active{background:#e8def0d9;color:#77508f}
+#kw-forest-preview .navitem:last-child{margin-top:auto}
+#kw-forest-preview main{padding:22px 15px 34px;min-width:0}
+#kw-forest-preview .heading{display:flex;align-items:center;justify-content:space-between;gap:8px;position:relative;z-index:3}
+#kw-forest-preview h2{font-size:23px;margin:0;font-weight:600;letter-spacing:-.5px}
+#kw-forest-preview .plain{border:0;background:transparent;color:#79568f;padding:8px 0;font-weight:600;font-size:13px}
+#kw-forest-preview .snow-toggle{display:flex;align-items:center;gap:7px;background:transparent;border:0;color:#597b92;font-size:12px;padding:9px 0 15px;position:relative;z-index:3}
+#kw-forest-preview .snow-toggle svg{width:15px;height:15px}
+#kw-forest-preview .filters{display:flex;background:#e9def1b3;border-radius:18px;padding:4px;position:relative;z-index:3}
+#kw-forest-preview .filters button{flex:1;border:0;border-radius:14px;padding:10px 3px;background:transparent;color:#79568f;font-weight:600;font-size:13px}
+#kw-forest-preview .filters .active{background:#ffffffdf;box-shadow:0 2px 6px #5a426509}
+#kw-forest-preview .viewmodes{display:flex;gap:8px;margin:12px 0;position:relative;z-index:3}
+#kw-forest-preview .viewmodes button{padding:8px 12px;border:1px solid #d5e1eb;background:#f8fbfc66;border-radius:12px;font-size:12px}
+#kw-forest-preview .viewmodes .active{background:#e0edefb8;color:#3c6570;border-color:transparent}
+#kw-forest-preview .week{display:flex;justify-content:space-between;align-items:center;margin:14px 0 22px;font-size:14px;position:relative;z-index:3}
+#kw-forest-preview .week button{background:transparent;border:0;color:#79568f;padding:5px}
+#kw-forest-preview .day{position:relative;margin-bottom:27px;border:1px solid #c9bad4b8;border-radius:22px;padding:12px;background:#f9fcff8c;box-shadow:0 5px 14px #5d779508}
+#kw-forest-preview .day.current{border:2px solid #9776af}
+#kw-forest-preview .dayhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;position:relative;z-index:3}
+#kw-forest-preview .dayhead strong{font-size:15px;color:#79568f}
+#kw-forest-preview .dayhead button{border:0;background:transparent;color:#79568f;padding:4px}
+#kw-forest-preview .task{position:relative;padding:12px;margin:0 0 22px;background:#e1e7f4cc;border:1px solid #ffffffb0;border-radius:15px;min-height:56px;font-size:14px;box-shadow:0 4px 10px #648aa309}
+#kw-forest-preview .task:last-child{margin-bottom:12px}
+#kw-forest-preview .task.r{background:#ede3f3c9}
+#kw-forest-preview .task.both{background:#e1edf0cf}
+#kw-forest-preview .task .row{display:flex;align-items:center;gap:8px;position:relative;z-index:3}
+#kw-forest-preview .task input{accent-color:#79568f;width:18px;height:18px;flex-shrink:0}
+#kw-forest-preview .task:has(input:checked) .task-title{text-decoration:line-through;opacity:.6}
+#kw-forest-preview .owners{margin-left:auto;display:flex;gap:2px;color:#79568f}
+#kw-forest-preview .owners svg{width:21px;height:21px;stroke-width:1.7}
+#kw-forest-preview .time{font-size:11px;color:#607890;margin-bottom:8px}
+#kw-forest-preview .status{font-size:11px;color:#79648e;margin-top:9px;display:flex;gap:5px;align-items:center}
+#kw-forest-preview .status svg{width:15px;height:15px}
+#kw-forest-preview .ice{position:absolute;right:16px;top:calc(100% - 2px);width:39px;height:22px;pointer-events:none;z-index:4;filter:drop-shadow(0 1px 1px #6ba0ba20)}
+#kw-forest-preview .ice i{position:absolute;top:0;width:8px;height:17px;background:linear-gradient(95deg,#98c9df70 0%,#f5fcffe0 30%,#ffffffcc 47%,#a9d8ec88 65%,#e7f8ffa6 100%);clip-path:polygon(0 0,100% 0,80% 22%,62% 77%,50% 100%,37% 77%,20% 22%)}
+#kw-forest-preview .snow{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}
+#kw-forest-preview .flake{position:absolute;top:-30px;left:var(--x);width:var(--size);height:var(--size);color:#7da9c6b0;opacity:var(--opacity);animation:kw-fall var(--duration) linear infinite;animation-delay:var(--delay);will-change:transform}
+#kw-forest-preview .flake.dot{background:#ffffff;border-radius:50%;box-shadow:0 0 3px #84b2d26b}
+#kw-forest-preview .flake svg{width:100%;height:100%;stroke-width:1.4}
+#kw-forest-preview.paused .flake{animation-play-state:paused}
+@keyframes kw-fall{0%{transform:translate3d(-12px,-20px,0) rotate(0)}50%{transform:translate3d(16px,500px,0) rotate(90deg)}100%{transform:translate3d(-8px,1040px,0) rotate(180deg)}}
+#kw-forest-preview .groupchips{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 22px;position:relative;z-index:3}
+#kw-forest-preview .groupchips button{border:1px solid #d6c8e1;background:#fbfaffae;border-radius:12px;padding:9px;font-size:12px}
+#kw-forest-preview .groupchips .active{background:#e4d7eed9}
+#kw-forest-preview .note{font-size:13px;line-height:1.65;white-space:pre-line;margin-top:12px}
+#kw-forest-preview .message{background:#e7dcf0d9;padding:12px;border-radius:16px;position:relative;margin:24px 0 32px;font-size:14px;max-width:95%}
+#kw-forest-preview .message small{display:block;font-size:11px;color:#79568f;margin-bottom:8px}
+#kw-forest-preview .message time{font-size:10px;color:#6d8091;float:right;margin:5px 0 0 12px}
+#kw-forest-preview .message.reply{background:#e0edf2d6;margin-left:20px}
+#kw-forest-preview .composer{display:flex;gap:7px;margin-top:80px;position:relative;z-index:3}
+#kw-forest-preview .composer input{width:100%;min-width:0;border:1px solid #c8bdd4;background:#ffffffdb;border-radius:12px;padding:12px;font:inherit;font-size:14px}
+#kw-forest-preview .composer button{border:0;border-radius:12px;background:#79568f;color:white;padding:10px}
+#kw-forest-preview .month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 0 25px;position:relative;z-index:3}
+#kw-forest-preview .month button{border:0;border-radius:10px;background:#f8fbff8f;min-height:45px;padding:5px;font-size:12px}
+#kw-forest-preview .month .chosen{background:#dfd0edc9;color:#75508c}
+#kw-forest-preview .month .marked:after{content:"";display:block;width:4px;height:4px;background:#79568f;border-radius:50%;margin:3px auto 0}
+#kw-forest-preview .empty{background:#f8fbffb8;border-radius:20px;padding:20px;line-height:1.6}
+@media(max-width:420px){#kw-forest-preview .shell{grid-template-columns:66px minmax(0,1fr)}#kw-forest-preview main{padding:18px 10px 32px}#kw-forest-preview .header{padding:14px 12px;gap:10px}#kw-forest-preview .sync{display:none}#kw-forest-preview h2{font-size:20px}#kw-forest-preview .plain{font-size:11px}#kw-forest-preview .navitem{font-size:10px;min-height:70px}#kw-forest-preview .day{padding:9px}#kw-forest-preview .task{padding:10px;font-size:13px}#kw-forest-preview .viewmodes button{padding:8px;font-size:11px}#kw-forest-preview .brand{font-size:15px}}
+</style>
+<div class="app">
+<div class="forest" aria-hidden="true"><div class="bank"></div></div>
+<header class="header"><i class="brandcat" data-lucide="cat" aria-hidden="true"></i><div class="brand">Kotiki team · Пользователь 1</div><div class="sync">Синхронизировано<br>20:15</div></header>
+<div class="shell"><nav aria-label="Разделы приложения"></nav><main><div class="heading"><h2>Наша неделя</h2><button class="plain" id="kw-add">＋ Добавить</button></div><button class="snow-toggle" aria-pressed="true"><i data-lucide="pause" aria-hidden="true"></i><span>Снег идёт</span></button><div class="content"></div></main></div>
+<div class="snow" aria-hidden="true"></div>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('kw-forest-preview');
+const content=root.querySelector('.content'),nav=root.querySelector('nav');
+const icons=()=>{if(globalThis.lucide)lucide.createIcons();};
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let state={screen:'board',snow:!reduced,filter:'Все',...((window.openai?.widgetState?.modelContent)||{})};
+const sections=[['board','columns-2','Доска'],['plans','asterisk','Планы'],['calendar','calendar-days','Календарь'],['notes','list','Заметки'],['invites','mail','Зовут'],['chat','messages-square','Чат'],['gather','heart','Общий сбор'],['settings','settings','Настройки']];
+const icon=(name)=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
+const ice=()=>'<span class="ice" aria-hidden="true"><i></i><i></i><i></i></span>';
+function icePattern(key){
+let seed=2166136261;
+for(const c of key)seed=Math.imul(seed^c.charCodeAt(0),16777619)>>>0;
+const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+const count=2+Math.floor(rand()*4),large=rand()>.45;
+let x=0;
+const shards=Array.from({length:count},()=>{
+const width=5+Math.floor(rand()*5),height=8+Math.floor(rand()*(large?15:7));
+const shard={left:x,width,height};x+=width+4+Math.floor(rand()*4);return shard;
+});
+return {width:x-4,shards};
+}
+function decorateIce(){
+content.querySelectorAll('.ice').forEach(el=>{
+const card=el.parentElement;
+const key=(card.querySelector('.task-title,strong')?.textContent||card.textContent).trim();
+const pattern=icePattern(key);
+el.style.width=pattern.width+'px';
+el.innerHTML=pattern.shards.map(s=>`<i style="left:${s.left}px;width:${s.width}px;height:${s.height}px"></i>`).join('');
+});
+}
+const owners=(both=false)=>`<span class="owners">${icon('cat')}${both?icon('cat'):''}</span>`;
+const task=(name,time='',kind='',both=false)=>`<article class="task ${kind}">${time?`<div class="time">${time}</div>`:''}<div class="row">${time?'':'<input type="checkbox" aria-label="Выполнено">'}<span class="task-title">${name}</span>${owners(both)}</div>${both?`<div class="status">${icon('heart')} Общий сбор · Принято</div>`:''}${ice()}</article>`;
+const filters=()=>`<div class="filters" aria-label="Участники">${['Мои','Пользователь 2','Все'].map(x=>`<button class="${state.filter===x?'active':''}" data-filter="${x}">${x}</button>`).join('')}</div>`;
+function save(){window.openai?.setWidgetState?.({modelContent:state}).catch(()=>{});}
+function snow(){root.classList.toggle('paused',!state.snow);const b=root.querySelector('.snow-toggle');b.setAttribute('aria-pressed',String(state.snow));b.innerHTML=icon(state.snow?'pause':'play')+`<span>${state.snow?'Снег идёт':'Снег на паузе'}</span>`;icons();}
+function render(){
+nav.innerHTML=sections.map(([id,i,n])=>`<button class="navitem ${state.screen===id?'active':''}" data-screen="${id}">${icon(i)}<span>${n}</span></button>`).join('');
+root.querySelector('h2').textContent=({board:'Наша неделя',plans:'Планы',calendar:'Календарь',notes:'Заметки',invites:'Зовут',chat:'Общий чат',gather:'Общий сбор',settings:'Настройки'})[state.screen]||'Наша неделя';
+root.querySelector('#kw-add').hidden=['chat','settings','gather'].includes(state.screen);
+if(state.screen==='board')content.innerHTML=filters()+`<div class="viewmodes"><button class="active">Обзор недели</button><button>Дни</button></div><div class="week"><button aria-label="Предыдущая неделя">${icon('chevron-left')}</button><span>Неделя 16.11 — 22.11</span><button aria-label="Следующая неделя">${icon('chevron-right')}</button></div><section class="day current"><div class="dayhead"><strong>Среда, 18.11</strong><button aria-label="Добавить">${icon('plus')}</button></div>${state.filter!=='Пользователь 2'?task('Заказать какао'):''}${state.filter!=='Мои'?task('Забрать коньки','13:00–13:30','r'):''}${task('На каток вдвоём','19:00–20:30','both',true)}</section><section class="day"><div class="dayhead"><strong>Четверг, 19.11</strong><button aria-label="Добавить">${icon('plus')}</button></div>${task('Выбрать маршрут')}</section>`;
+else if(state.screen==='plans')content.innerHTML=`<div class="groupchips"><button class="active">Зимние выходные</button><button>Путешествия</button><button>Ещё</button></div>${task('Домик у леса','Идея на декабрь','both',true)}${task('Покататься на лыжах','Выбрать выходные','r')}${task('Устроить вечер кино','Дома, с какао')}`;
+else if(state.screen==='notes')content.innerHTML=`<div class="groupchips"><button class="active">Наше</button><button>Личное</button><button>Ещё</button></div><article class="task both"><strong>Взять на прогулку</strong><div class="note"><label><input type="checkbox"> Термос с чаем</label>\n<label><input type="checkbox"> Варежки</label>\n<label><input type="checkbox"> Фотоаппарат</label></div>${ice()}</article><article class="task"><strong>Идеи зимнего вечера</strong><div class="note">Испечь печенье, выбрать фильм и никуда не торопиться.</div>${ice()}</article>`;
+else if(state.screen==='chat')content.innerHTML=`<div class="messages"><div class="message"><small>Пользователь 1</small>Пойдём вечером на каток?<time>20:12</time>${ice()}</div><div class="message reply"><small>Пользователь 2</small>Да! Возьму термос с какао ❄<time>20:14</time>${ice()}</div></div><form class="composer"><input aria-label="Сообщение" placeholder="Сообщение"><button aria-label="Отправить">${icon('send')}</button></form>`;
+else if(state.screen==='calendar')content.innerHTML=filters()+`<div class="week"><span>Ноябрь 2026</span>${icon('calendar-days')}</div><div class="month">${Array.from({length:30},(_,i)=>`<button class="${i===17?'chosen marked':''}">${i+1}</button>`).join('')}</div><div class="dayhead"><strong>Среда, 18.11</strong></div>${task('На каток вдвоём','19:00–20:30','both',true)}`;
+else if(state.screen==='invites')content.innerHTML=task('Прогулка в лесу','Суббота, 21.11 · 12:00','both',true);
+else if(state.screen==='gather')content.innerHTML='<div class="empty">Собрать собрание котиков<div class="note">Вечер вдвоём<br>Пятница, 20.11 · 19:00<br>Участники: мы оба</div></div>';
+else content.innerHTML='<div class="empty">Оформление<div class="note">Зима вместе · предпросмотр<br>Светлая тема</div></div>';
+decorateIce();icons();snow();
+const form=content.querySelector('form');if(form)form.addEventListener('submit',e=>{e.preventDefault();const input=form.querySelector('input');if(!input.value.trim())return;const msg=document.createElement('div');msg.className='message';const who=document.createElement('small');who.textContent='Пользователь 1';msg.append(who,document.createTextNode(input.value));msg.insertAdjacentHTML('beforeend',ice());content.querySelector('.messages').append(msg);decorateIce();input.value='';});
+}
+nav.addEventListener('click',e=>{const b=e.target.closest('[data-screen]');if(b){state.screen=b.dataset.screen;render();save();}});
+content.addEventListener('click',e=>{const b=e.target.closest('[data-filter]');if(b){state.filter=b.dataset.filter;render();save();}});
+root.querySelector('.snow-toggle').addEventListener('click',()=>{state.snow=!state.snow;snow();save();});
+const forest=root.querySelector('.forest');
+[[72,-6,1.5,.45],[46,12,1.1,.25],[83,42,.9,.33],[1,-5,.7,.35],[24,4,.75,.2]].forEach(([left,bottom,scale,opacity])=>{const t=document.createElement('div');t.className='tree';t.style.cssText=`left:${left}%;bottom:${bottom}%;transform:scale(${scale});transform-origin:bottom center;opacity:${opacity}`;t.innerHTML='<b></b>'+[0,23,47].map((top,i)=>`<div class="branch" style="top:${top}%;transform:scaleX(${.55+i*.23})"></div>`).join('');forest.prepend(t);});
+const snowLayer=root.querySelector('.snow');
+for(let i=0;i<52;i++){const f=document.createElement('span');const crystal=i%5===0;f.className='flake'+(crystal?'':' dot');f.style.cssText=`--x:${(i*37.13)%100}%;--size:${crystal?12+i%7:3+i%4}px;--opacity:${crystal?.55:.5+i%4*.12};--duration:${11+i%11}s;--delay:-${(i*1.7)%22}s`;if(crystal)f.innerHTML=icon('snowflake');snowLayer.append(f);}
+window.addEventListener('openai:set_globals',e=>{const s=e.detail?.globals?.widgetState?.modelContent;if(s){state={...state,...s};render();}});
+document.addEventListener('visibilitychange',()=>{snowLayer.style.animationPlayState=document.hidden?'paused':'';snowLayer.querySelectorAll('.flake').forEach(f=>f.style.animationPlayState=document.hidden?'paused':'');});
+render();
+})();
+</script>
+</div>

@@ -48,7 +48,7 @@ fun ReminderSettings() {
             runCatching { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 .onFailure { error="Не удалось открыть доступ. Разреши будильники и напоминания в настройках Android." }
         },modifier=Modifier.fillMaxWidth()) { Text("Разрешить точные напоминания") }
-        Text("По умолчанию: за 30 минут до события со временем, в 09:00 для дела на день, без напоминания для дел без дня. Настройка каждой записи доступна в её карточке.",style=MaterialTheme.typography.bodySmall)
+        Text("По умолчанию: за 30 минут до события со временем, в 09:00 для дела на день, без напоминания для дел без дня. Настройка доступна при создании и редактировании записи; в просмотре показано выбранное время.",style=MaterialTheme.typography.bodySmall)
         error?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error) }
     }
 }

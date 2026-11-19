@@ -12,7 +12,7 @@ enum class Visibility { SHARED, PRIVATE, BUSY }
 enum class OwnerFilter(val label: String) { MINE("Мои"), USER_2("Пользователь 2"), ALL("Все") }
 enum class InviteState { NONE, PENDING, ACCEPTED, DECLINED }
 enum class Section(val label: String) {
-    BOARD("Доска"), PLANS("Планы"), CALENDAR("Календарь"), LISTS("Заметки"), INVITES("Зовут"), CHAT("Чат"), SETTINGS("Настройки")
+    BOARD("Доска"), CALENDAR("Календарь"), PLANS("Планы"), LISTS("Заметки"), INVITES("Зовут"), CHAT("Чат"), SETTINGS("Настройки")
 }
 data class Entry(
     val id: String,

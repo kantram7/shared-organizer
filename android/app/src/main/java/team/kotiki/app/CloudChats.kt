@@ -73,16 +73,18 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
         }.addOnFailureListener{if(!closed)readServer()}
     }
 
-    fun observe(target:ChatTarget,onState:(ChatSnapshot)->Unit):()->Unit {
+    fun observe(target:ChatTarget,since:Long?=null,messageLimit:Int=100,onState:(ChatSnapshot)->Unit):()->Unit {
         val token=newId()
         var active=true
         var last=ChatSnapshot()
         begin()
         ensureChat(target,{
             end()
-            if(active && !closed)listeners[token]=root.document(target.id).collection("messages")
-                .orderBy("createdAt",Query.Direction.DESCENDING).limit(100)
-                .addSnapshotListener(MetadataChanges.INCLUDE){snapshot,error->
+            val base=root.document(target.id).collection("messages").orderBy("createdAt",Query.Direction.DESCENDING)
+            // The unread listener only downloads messages at/after its persisted read cursor.
+            // It is not capped at the last 100 messages shown in the conversation.
+            val query=if(since==null)base.limit(messageLimit.coerceAtLeast(100).toLong())else base.whereGreaterThanOrEqualTo("createdAt",com.google.firebase.Timestamp(java.util.Date(since)))
+            if(active && !closed)listeners[token]=query.addSnapshotListener(MetadataChanges.INCLUDE){snapshot,error->
                     if(!active || closed)return@addSnapshotListener
                     if(error!=null){
                         snapshotPending.remove(token);pendingChanged()
@@ -104,6 +106,24 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
                 }
         },{error->end();if(active && !closed)onState(last.copy(loading=false,error=messageFor(error)))})
         return {active=false;listeners.remove(token)?.remove();snapshotPending.remove(token);pendingChanged()}
+    }
+
+    /** Observe metadata without creating empty rooms while showing board/calendar badges. */
+    fun observeExisting(target:ChatTarget,since:Long,onState:(ChatSnapshot)->Unit):()->Unit {
+        require(valid(target))
+        val token=newId();var active=true;var messages:(()->Unit)?=null
+        listeners[token]=root.document(target.id).addSnapshotListener { document,error ->
+            if(active && !closed) {
+                if(error!=null || document?.exists()!=true) {
+                    messages?.invoke();messages=null
+                    onState(ChatSnapshot(loading=false,error=error?.let(::messageFor)))
+                } else if(messages==null) {
+                    knownChats.add(target.id)
+                    messages=observe(target,since,onState=onState)
+                }
+            }
+        }
+        return {active=false;messages?.invoke();listeners.remove(token)?.remove()}
     }
 
     fun send(target:ChatTarget,text:String,onQueued:()->Unit,onFailure:(String)->Unit) {

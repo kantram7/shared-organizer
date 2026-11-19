@@ -39,7 +39,7 @@ import java.time.LocalTime
         TimePickerDialog(context,{_,hour,minute->onPick("%02d:%02d".format(java.util.Locale.ROOT,hour,minute))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
-        Surface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge){
+        EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge){
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Text("Предложить изменения",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
@@ -52,6 +52,7 @@ import java.time.LocalTime
                     }else Text("Изменения вступят в силу после подтверждения второго участника.")
                     OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")})
                     OutlinedTextField(note,{note=it.take(300)},Modifier.fillMaxWidth(),minLines=2,label={Text("Комментарий к предложению")})
+                    EditorLinks(title+"\n"+note)
                     OutlinedButton(onClick={pickDate(date){date=it;if(original.isGathering || last<it)last=it}},modifier=Modifier.fillMaxWidth().semantics{contentDescription="Дата предложения"}){Text(fullDayLabel(date))}
                     if(!original.isGathering)OutlinedButton(onClick={pickDate(last){last=it}},modifier=Modifier.fillMaxWidth().semantics{contentDescription="Окончание предложения"}){Text("До ${dateLabel(last)} включительно")}
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){

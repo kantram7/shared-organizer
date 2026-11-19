@@ -57,9 +57,9 @@ object GatheringNotifications {
             putExtra(ENTRY,entry.id);putExtra(PROFILE,identity.viewer.name)
         }
         val pending=PendingIntent.getActivity(context,0,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val public=NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_meeting)
+        val public=NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw)
             .setContentTitle("Общий сбор · приглашение").setContentText("Открой приложение, чтобы посмотреть подробности").build()
-        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_meeting)
+        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw)
             .setContentTitle("Общий сбор · приглашение").setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setSubText("Локальный пример")
             .setCategory(NotificationCompat.CATEGORY_EVENT).setColor(0xFF99536C.toInt())

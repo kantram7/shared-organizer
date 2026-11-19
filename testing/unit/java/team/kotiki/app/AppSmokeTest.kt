@@ -29,6 +29,14 @@ import org.robolectric.annotation.LooperMode
 class AppSmokeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @Before fun waitForWelcome(){compose.mainClock.advanceTimeBy(2200);compose.waitForIdle();if(compose.onAllNodesWithText("Посмотреть локальное демо").fetchSemanticsNodes().isNotEmpty())compose.onNodeWithText("Посмотреть локальное демо").performScrollTo().performClick()}
+    @Test fun winterIsNotSelectableBeforeRemoteLaunchAndSystemButtonsStayTransparent() {
+        compose.onNodeWithText("Настройки").performClick()
+        compose.onNodeWithText("Зима вместе").assertDoesNotExist()
+        compose.onNodeWithText("Зима вместе · скоро").assertDoesNotExist()
+        org.junit.Assert.assertFalse(compose.activity.window.isNavigationBarContrastEnforced)
+        @Suppress("DEPRECATION")
+        org.junit.Assert.assertEquals(android.graphics.Color.TRANSPARENT,compose.activity.window.navigationBarColor)
+    }
     @Test fun launchNavigateAndCloseEditor() {
         compose.onNodeWithContentDescription("Kotiki team").assertIsDisplayed()
         compose.onNodeWithText("+ Добавить").performClick()
@@ -118,9 +126,9 @@ class AppSmokeTest {
         compose.onNodeWithText(entry.title).performScrollTo().performSemanticsAction(SemanticsActions.OnClick){it()}
         val sender=store.identity.names[entry.owner] ?: entry.owner.label
         val recipient=store.identity.names[store.viewer] ?: store.viewer.label
-        compose.onNodeWithText("Отправитель: $sender").assertIsDisplayed()
-        compose.onNodeWithText("Получатель: $recipient").assertIsDisplayed()
-        compose.onNodeWithText("Приглашение принято").assertIsDisplayed()
+        compose.onNodeWithText("Отправитель: $sender").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Получатель: $recipient").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Приглашение принято").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun recordTapShowsDetailsBeforeEditor() {

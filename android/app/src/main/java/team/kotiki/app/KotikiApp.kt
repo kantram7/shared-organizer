@@ -3,7 +3,6 @@ package team.kotiki.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-@Composable fun KotikiApp(store:DemoStore,notificationTarget:GatheringNotificationTarget?=null,onNotificationHandled:()->Unit={},onSignOut:()->Unit={},chats:CloudChats?=null,onProfile:(Person)->Unit={}) {
+@Composable fun KotikiApp(store:DemoStore,notificationTarget:GatheringNotificationTarget?=null,onNotificationHandled:()->Unit={},onSignOut:()->Unit={},chats:CloudChats?=null,localChatPreview:(@Composable ()->Unit)?=null,onProfile:(Person)->Unit={}) {
     var page by rememberSaveable {mutableStateOf(Section.BOARD)}
     var editor by rememberSaveable {mutableStateOf<Entry?>(null)}
     var meeting by rememberSaveable {mutableStateOf<Entry?>(null)}
@@ -39,8 +38,17 @@ import java.time.LocalDate
     var planEditing by rememberSaveable {mutableStateOf(false)}
     var history by remember {mutableStateOf<List<String>?>(null)}
     var help by rememberSaveable {mutableStateOf<String?>(null)}
+    val reminderAccount=store.cloudSession?.authUid ?: "demo/${store.viewer.name}"
     val viewedEntry=detail ?: editor?.takeIf{candidate->store.entries.any{it.id==candidate.id}}
     NotificationReadEffect(store.cloudSession?.authUid,viewedEntry?.let{NotificationReadState.entry(it.id)})
+    val invitationReads=remember(store){InvitationReads(store.appContext,localProfileKey(store.cloudSession,store.viewer),store.viewer)}
+    val unread=remember(chats){chats?.let{ChatUnreadState(store.appContext,it.session.uid,localProfileKey(it.session,it.session.viewer))}}
+    DisposableEffect(chats,unread,unread?.since){
+        val stop=if(chats!=null && unread!=null)chats.observe(ChatTarget("general","Общий чат"),since=unread.since,onState=unread::receive)else null
+        onDispose{stop?.invoke()}
+    }
+    val entryReads=remember(chats){chats?.let{EntryChatReads(store.appContext,it.session.uid,localProfileKey(it.session,it.session.viewer))}}
+    ObserveEntryChats(chats,entryReads,store.entries,store.viewer)
     val pages=rememberSaveableStateHolder()
     val colors=MaterialTheme.colorScheme
     val adaptive=LocalConfiguration.current.fontScale>=1.3f
@@ -48,9 +56,18 @@ import java.time.LocalDate
     val drawer=rememberDrawerState(DrawerValue.Closed)
     val scope=rememberCoroutineScope()
     val snackbar=remember {SnackbarHostState()}
-    LaunchedEffect(notificationTarget) {
+    LaunchedEffect(notificationTarget,store.entries.toList(),store.cloudReady) {
         notificationTarget?.let {target->
             if(target.authUid.isNotBlank() && target.authUid!=store.cloudSession?.authUid){onNotificationHandled();return@let}
+            val eventChatId=eventIdFromChat(target)
+            if(eventChatId!=null) {
+                val event=store.entries.find{it.id==eventChatId && it.visibility==Visibility.SHARED && it.visibleTo(store.viewer)}
+                if(event==null && store.cloudSession!=null && !store.cloudReady)return@let
+                if(editor!=null || meeting!=null){scope.launch{snackbar.showSnackbar("Закрой редактор, затем открой событие")}}
+                else if(event!=null){page=Section.BOARD;planChat=null;detail=event}
+                else scope.launch{snackbar.showSnackbar("Событие удалено или недоступно")}
+                onNotificationHandled();return@let
+            }
             if(target.chatId.isNotBlank()) {
                 if(editor!=null || meeting!=null){onNotificationHandled();scope.launch{snackbar.showSnackbar("Закрой редактор, затем открой чат")};return@let}
                 page=when { target.chatId=="general" -> Section.CHAT; target.collectionId.isNotBlank() -> Section.PLANS; else -> Section.BOARD }
@@ -87,17 +104,18 @@ import java.time.LocalDate
     BackHandler(enabled=drawer.isOpen){scope.launch{drawer.close()}}
     BackHandler(enabled=page!=Section.BOARD && editor==null && meeting==null && detail==null && help==null && !drawer.isOpen){page=Section.BOARD}
     BackHandler(enabled=planChat!=null){planChat=null}
-    CompositionLocalProvider(LocalRecordDelete provides store::deleteEntry,LocalRecordCanDelete provides store::canDelete) {
+    CompositionLocalProvider(LocalEntryChatReads provides entryReads,LocalInvitationReads provides invitationReads,LocalChatUnread provides unread,LocalRecordDelete provides store::deleteEntry,LocalRecordCanDelete provides store::canDelete) {
     ModalNavigationDrawer(drawerState=drawer,gesturesEnabled=adaptive,drawerContent={
         if(adaptive)ModalDrawerSheet(Modifier.widthIn(max=320.dp).fillMaxHeight()) {
             Text("Kotiki team",Modifier.padding(20.dp),style=MaterialTheme.typography.titleLarge)
-            AppNavigation(page,true,::navigate,::gatherCats)
+            AppNavigation(page,true,::navigate,::gatherCats,unread?.count?:0,invitationReads.count(store.entries))
         }
     }) {
         Surface(Modifier.fillMaxSize(),color=colors.background) {
             Box(Modifier.fillMaxSize()) {
+                WinterBackdrop(Modifier.fillMaxSize())
                 Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    Row(Modifier.fillMaxWidth().background(colors.surface).heightIn(min=52.dp).padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().background(winterSurface(if(winterDesignEnabled())colors.surfaceVariant else colors.surface,.80f)).heightIn(min=52.dp).padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically) {
                         if(adaptive)IconButton({scope.launch{drawer.open()}},Modifier.semantics{contentDescription="Открыть меню"}){KotikiIcon(Glyph.MENU)}
                         Box(Modifier.width(navigationWidth).height(44.dp),contentAlignment=Alignment.Center) {
                             BrandMark(Modifier.requiredSize(62.dp))
@@ -107,7 +125,7 @@ import java.time.LocalDate
                     }
                     HorizontalDivider(color=colors.outlineVariant)
                     Row(Modifier.weight(1f)) {
-                        if(!adaptive){Box(Modifier.width(navigationWidth).fillMaxHeight().background(colors.surface)){AppNavigation(page,false,::navigate,::gatherCats)};VerticalDivider(color=colors.outlineVariant)}
+                        if(!adaptive){Box(Modifier.width(navigationWidth).fillMaxHeight().background(winterSurface(colors.surface,.72f))){AppNavigation(page,false,::navigate,::gatherCats,unread?.count?:0,invitationReads.count(store.entries))};VerticalDivider(color=colors.outlineVariant)}
                         Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal=12.dp)) {
                             if(store.storageWarning)Text("Не удалось прочитать сохранённое демо",color=colors.error,style=MaterialTheme.typography.labelSmall)
                             pages.SaveableStateProvider(page.name) {
@@ -119,10 +137,10 @@ import java.time.LocalDate
                                         TextButton({planChat=null}){Text("Назад к планам")}
                                     } else ChatScreen(target.copy(title=plan?.title ?: target.title),chats,onBack={planChat=null},header=if(plan!=null){{
                                         val actions=rememberItemMenu()
-                                        Row(Modifier.fillMaxWidth().combinedClickable(onClick={},onLongClick={actions.expanded=true}),verticalAlignment=Alignment.Top) {
+                                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Top) {
                                             Column(Modifier.weight(1f).heightIn(max=160.dp).verticalScroll(rememberScrollState())) {
                                                 Text("Описание",style=MaterialTheme.typography.labelLarge)
-                                                Text(plan.description.ifBlank{"Описание пока не добавлено"},style=MaterialTheme.typography.bodyMedium)
+                                                LinkText(plan.description.ifBlank{"Описание пока не добавлено"},style=MaterialTheme.typography.bodyMedium)
                                             }
                                             ItemActions(plan.title,{store.deleteItem(true,target.collectionId,target.itemId);planChat=null},actions)
                                         }
@@ -134,15 +152,16 @@ import java.time.LocalDate
                                     Section.BOARD->BoardScreen(store,::open,{editor=it},{help=it})
                                     Section.PLANS->CollectionsScreen(store,true,onPlanChat={store.preparePlanChat();planChat=it}){help=it}
                                     Section.CALENDAR->CalendarScreen(store,::open,{editor=it},{help=it})
-                                    Section.LISTS->NotesScreen(store.notes){help=it}
+                                    Section.LISTS->NotesScreen(store.notes,store.manualOrder){help=it}
                                     Section.INVITES->InvitationsScreen(store,{detail=it},{val today=LocalDate.now();editor=Entry(newId(),"",today,mondayOf(today),kind=Kind.EVENT,owner=store.viewer,invite=InviteState.PENDING)})
-                                    Section.CHAT->ChatScreen(ChatTarget("general","Общий чат"),chats)
+                                    Section.CHAT->if(BuildConfig.WINTER_PREVIEW && localChatPreview!=null)localChatPreview() else ChatScreen(ChatTarget("general","Общий чат"),chats)
                                     Section.SETTINGS->SettingsScreen(store,onProfile,onSignOut)
                                 }
                             }
                         }
                     }
                 }
+                WinterSnow(Modifier.fillMaxSize().safeDrawingPadding())
                 SnackbarHost(snackbar,Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
             }
         }
@@ -155,54 +174,43 @@ import java.time.LocalDate
         }
     }
     proposalEditor?.let {original -> ProposalEditor(original,onDismiss={proposalEditor=null},onPropose={store.proposeInvitation(original,it);proposalEditor=null}) }
-    meeting?.let {entry->EntryEditor(entry,onDismiss={meeting=null},onSave={store.upsert(it);meeting=null})}
+    meeting?.let {entry->EntryEditor(entry,onDismiss={meeting=null},onSave={store.upsert(it);meeting=null},isNew=store.entries.none{it.id==entry.id},reminderAccount=reminderAccount)}
     editor?.let {entry->EntryEditor(entry,onDismiss={editor=null},onSave={store.upsert(it);editor=null},
-        isNew=store.entries.none{it.id==entry.id},
+        isNew=store.entries.none{it.id==entry.id},reminderAccount=reminderAccount,
         onDelete=if(store.entries.any{it.id==entry.id} && store.canDelete(entry)){{store.deleteEntry(entry);editor=null}} else null,
         onHistory=if(store.cloudSession!=null && store.entries.any{it.id==entry.id}){{history=listOf("Загружаем историю…");store.cloudHistory?.invoke("entry_${entry.id}"){history=it}}}else null,
         calendarActions=if(store.entries.any{it.id==entry.id} && store.cloudSession!=null) {{
             CalendarExportActions(entry,store.cloudSession.authUid)
-            if(entry.who==store.viewer || entry.who==Person.BOTH)EntryReminderSettings(entry,store.cloudSession.authUid)
             if(entry.visibility==Visibility.SHARED)TextButton({editor=null;planChat=ChatTarget("entry_${entry.id}",entry.title,itemId=entry.id)}){Text("Обсудить в чате")}
         }} else null)}
     detail?.let {opened->
         val entry=store.entries.find{it.id==opened.id}?.redactFor(store.viewer) ?: opened
         val actions=rememberItemMenu()
-        AlertDialog(onDismissRequest={detail=null},title={Row(Modifier.combinedClickable(onClick={},onLongClick={actions.expanded=true}),verticalAlignment=Alignment.Top) {
-            Text(entry.title,Modifier.weight(1f))
-            ItemActions(entry.title,if(store.canDelete(entry)){{store.deleteEntry(entry);detail=null}}else null,actions)
-        }},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        InvitationReadEffect(entry,state=invitationReads)
+        EntryDetailsDialog(entry,onClose={detail=null},onEdit=if(entry.canEdit(store.viewer)){{detail=null;editor=entry}}else null,
+            actions={ItemActions(entry.title,if(store.canDelete(entry)){{store.deleteEntry(entry);detail=null}}else null,actions)}) {
         if(entry.invite!=InviteState.NONE) {
-            Text("Отправитель: ${personLabel(entry.owner)}")
-            Text("Получатель: ${personLabel(entry.owner.other())}")
+            Text("Отправитель: ${personLabel(entry.owner)}",style=MaterialTheme.typography.bodyMedium)
+            Text("Получатель: ${personLabel(entry.owner.other())}",style=MaterialTheme.typography.bodyMedium)
         }
-        if(entry.isGathering) {
-            Text("Общий сбор · событие-приглашение",color=gatheringAccent())
-            Text("Участники — мы оба")
-        }
-        Text(entry.date?.let(::fullDayLabel) ?: "На неделе, без дня")
-        if(entry.start.isNotEmpty()){Text("${entry.start}–${entry.end}")}
-        if(entry.note.isNotBlank()){Text(entry.note)}
         entry.proposal?.let { p ->
             HorizontalDivider()
             Text("Предложение: ${personLabel(p.proposedBy)}",style=MaterialTheme.typography.titleSmall)
             Text("${fullDayLabel(p.date)} · ${p.start}–${p.end}")
-            if(p.title!=entry.title)Text(p.title)
-            if(p.note.isNotBlank())Text(p.note)
+            if(p.title!=entry.title)LinkText(p.title)
+            if(p.note.isNotBlank())LinkText(p.note)
             Text("До подтверждения действует прежнее время.",style=MaterialTheme.typography.bodySmall)
         }
-        InvitationAcceptButton(entry,{store.acceptInvitation(it);detail=null})
-        if(entry.canAccept(store.viewer))TextButton({store.respondInvitation(entry,false);detail=null}){
-            Text(if(entry.proposal!=null)"Отклонить изменения" else "Отказаться")
-        }
-        if(entry.invite in listOf(InviteState.PENDING,InviteState.ACCEPTED) && entry.visibility==Visibility.SHARED)
-            TextButton({detail=null;proposalEditor=entry}){Text("Предложить изменения")}
+        InvitationResponses(entry,store.viewer,onAccept={store.acceptInvitation(entry);detail=null},
+            onDecline={store.respondInvitation(entry,false);detail=null},onPropose={detail=null;proposalEditor=entry})
 
         store.cloudSession?.let {
             if(entry.visibility!=Visibility.BUSY || entry.owner==store.viewer)CalendarExportActions(entry,it.authUid)
-            if((entry.who==store.viewer || entry.who==Person.BOTH) && (entry.visibility!=Visibility.BUSY || entry.owner==store.viewer))EntryReminderSettings(entry,it.authUid)
         }
-        if(store.cloudSession!=null && entry.visibility==Visibility.SHARED)TextButton({detail=null;planChat=ChatTarget("entry_${entry.id}",entry.title,itemId=entry.id)}){Text("Обсудить в чате")}
+        if((entry.who==store.viewer || entry.who==Person.BOTH) && (entry.visibility!=Visibility.BUSY || entry.owner==store.viewer))EntryReminderSummary(entry,reminderAccount)
+        if(store.cloudSession!=null && entry.visibility==Visibility.SHARED)TextButton({detail=null;planChat=ChatTarget("entry_${entry.id}",entry.title,itemId=entry.id)}){
+            Text("Обсудить в чате");Spacer(Modifier.width(8.dp));ChatCountBadge(entryReads?.count(entry.id) ?: 0)
+        }
 
         if(entry.invite!=InviteState.NONE && store.cloudSession==null)Text("Пример приглашения · обмен пока недоступен",color=colors.onSurfaceVariant)
         if(store.cloudSession!=null)TextButton({
@@ -211,22 +219,21 @@ import java.time.LocalDate
         }){Text("История изменений")}
         if(entry.invite==InviteState.ACCEPTED)Text(if(entry.proposal==null)"Приглашение принято" else "Принято прежнее время · изменения ожидают ответа",color=colors.primary)
         if(entry.isGathering && entry.invite==InviteState.PENDING && entry.gatheringError()==null)GatheringNotificationPreview(entry)
-    }},confirmButton={TextButton({detail=null}){Text("Закрыть")}},dismissButton={
-        if(entry.canEdit(store.viewer))TextButton({detail=null;editor=entry}){Text("Редактировать")}
-    })}
+    }}
     history?.let {rows->AlertDialog(onDismissRequest={history=null},title={Text("История изменений")},
         text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
             if(rows.isEmpty())Text("Пока нет сохранённых версий") else rows.forEach{Text(it)}
-        }},confirmButton={TextButton({history=null}){Text("Закрыть")}})}
+        }},confirmButton={QuietCloseButton({history=null})})}
     help?.let {text->AlertDialog(onDismissRequest={help=null},title={Text("Видимость")},text={Text(text)},confirmButton={TextButton({help=null}){Text("Понятно")}})}
 }
 
-@Composable private fun AppNavigation(page:Section,expanded:Boolean,onSelect:(Section)->Unit,onGather:()->Unit) {
+@Composable private fun AppNavigation(page:Section,expanded:Boolean,onSelect:(Section)->Unit,onGather:()->Unit,unread:Int=0,unreadInvites:Int=0) {
     Column(Modifier.fillMaxSize().padding(vertical=8.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Section.entries.filter{it!=Section.SETTINGS}.forEach{NavigationItem(it,page==it,expanded){onSelect(it)}}
+            Section.entries.filter{it!=Section.SETTINGS}.forEach{NavigationItem(it,page==it,expanded,when(it){Section.CHAT->unread;Section.INVITES->unreadInvites;else->0}){onSelect(it)}}
             GatherCatsButton(expanded,onGather)
         }
+
         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
         NavigationItem(Section.SETTINGS,page==Section.SETTINGS,expanded){onSelect(Section.SETTINGS)}
     }
@@ -234,25 +241,29 @@ import java.time.LocalDate
 @Composable private fun GatherCatsButton(expanded:Boolean,onClick:()->Unit) {
     val label="Общий сбор"
     val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp)).clickable(onClickLabel=label,onClick=onClick).padding(vertical=8.dp)
+        .clip(RoundedCornerShape(12.dp)).clickable(onClickLabel=label,onClick=onClick).padding(vertical=11.dp)
     if(expanded)Row(modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
         KotikiIcon(Glyph.MEETING,Modifier.size(24.dp))
         Text(label,Modifier.weight(1f))
-    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally) {
+    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
         KotikiIcon(Glyph.MEETING,Modifier.size(24.dp))
         Text(label,fontSize=9.sp,lineHeight=11.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center,
             color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-@Composable private fun NavigationItem(section:Section,selected:Boolean,expanded:Boolean,onClick:()->Unit) {
+@Composable private fun NavigationItem(section:Section,selected:Boolean,expanded:Boolean,unread:Int=0,onClick:()->Unit) {
     val glyph=when(section){Section.BOARD->Glyph.BOARD;Section.PLANS->Glyph.PLANS;Section.CALENDAR->Glyph.CALENDAR;Section.LISTS->Glyph.LIST;Section.INVITES->Glyph.MAIL;Section.CHAT->Glyph.CHAT;Section.SETTINGS->Glyph.SETTINGS}
-    val color=if(selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+    val color=if(selected)winterSurface(MaterialTheme.colorScheme.primaryContainer) else if(winterDesignEnabled())Color.Transparent else MaterialTheme.colorScheme.surface
     val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color).clickable(onClick=onClick).padding(vertical=11.dp)
     if(expanded)Row(modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-        KotikiIcon(glyph);Text(section.label)
-    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally) {
-        KotikiIcon(glyph);Text(section.label,fontSize=9.sp,maxLines=1,color=if(selected)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        NavigationGlyph(glyph,unread,if(section==Section.INVITES)"Непрочитанных приглашений" else "Непрочитанных сообщений");Text(section.label)
+    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        NavigationGlyph(glyph,unread,if(section==Section.INVITES)"Непрочитанных приглашений" else "Непрочитанных сообщений");Text(section.label,fontSize=9.sp,maxLines=1,color=if(selected)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable internal fun NavigationGlyph(glyph:Glyph,unread:Int,label:String="Непрочитанных сообщений") {
+    BadgedBox(badge={if(unread>0)Badge(Modifier.semantics{contentDescription="$label: ${if(unread>99)"больше 99" else unread}"}){Text(if(unread>99)"99+" else unread.toString())}}){KotikiIcon(glyph)}
 }
 
 @Composable fun ScreenHeading(title: String, action: String? = null, onAction: () -> Unit = {}) {
@@ -289,11 +300,11 @@ import java.time.LocalDate
         KotikiIcon(glyph)
     }
 }
-@Composable fun RecordCard(entry: Entry, onOpen: (Entry) -> Unit, onDone: (Entry) -> Unit, onHelp: (String) -> Unit, onAccept:(Entry)->Unit) {
+@Composable fun RecordCard(entry: Entry, onOpen: (Entry) -> Unit, onDone: (Entry) -> Unit, onHelp: (String) -> Unit, onAccept:(Entry)->Unit,compact:Boolean=false,iceSpace:androidx.compose.ui.unit.Dp=0.dp) {
     val viewer = LocalDemoIdentity.current.viewer
     val colors = MaterialTheme.colorScheme
     val actions=rememberItemMenu()
-    Surface(Modifier.fillMaxWidth().combinedClickable(onClick={onOpen(entry)},onLongClick={actions.expanded=true}),
+    Surface(Modifier.fillMaxWidth().winterIcicles(entry.id,iceSpace).clickable{onOpen(entry)},
         shape = RoundedCornerShape(if (entry.isDayTask) 10.dp else 15.dp),
         border = if(entry.isGathering)androidx.compose.foundation.BorderStroke(1.dp,gatheringAccent().copy(alpha=.55f)) else null,
         color = if(entry.isGathering)gatheringTint() else participantTint(entry.who, entry.isDayTask)) {
@@ -302,20 +313,24 @@ import java.time.LocalDate
         if (entry.isDayTask) {
             Row(Modifier.padding(start = 2.dp, end = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (entry.canEdit(viewer)) Checkbox(checked = entry.done, onCheckedChange = { onDone(entry) }, modifier = Modifier.size(42.dp))
-                Text(entry.title, Modifier.weight(1f).padding(vertical = 9.dp), fontSize = 13.sp,
+                LinkText(entry.title, Modifier.weight(1f).padding(vertical = if(compact)4.5.dp else 9.dp), fontSize = 13.sp,
                     textDecoration = if(entry.done) TextDecoration.LineThrough else null)
+                EntryChatBadge(entry){onOpen(entry)}
                 AccessIcon(entry, onHelp)
                 RecordActions(entry,actions,onOpen)
             }
         } else {
-            Column(Modifier.padding(10.dp)) {
+            Column(Modifier.padding(horizontal=10.dp,vertical=if(compact)5.dp else 10.dp)) {
                 if(entry.isGathering)GatheringLabel()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(when { entry.isMultiDay -> "${dateLabel(entry.date!!)} — ${dateLabel(entry.lastDate!!)}"; entry.start.isNotBlank() -> "${entry.start}–${entry.end}"; else -> "Весь день" }, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     AccessIcon(entry, onHelp)
                 RecordActions(entry,actions,onOpen)
                 }
-                Text(entry.title, Modifier.fillMaxWidth().padding(vertical = 5.dp), fontWeight = FontWeight.Medium)
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    LinkText(entry.title, Modifier.weight(1f).padding(vertical = if(compact)2.5.dp else 5.dp), fontWeight = FontWeight.Medium)
+                    EntryChatBadge(entry){onOpen(entry)}
+                }
                 if(entry.isTentative || entry.proposal!=null) Text(if(entry.canAccept(viewer)) "Ждёт твоего ответа" else "Ждёт ответа: ${personLabel(viewer.other())}", style = MaterialTheme.typography.labelSmall, color = colors.primary)
                 if(entry.proposal!=null)Text("Предложено другое время",style=MaterialTheme.typography.labelSmall,color=colors.primary)
                 if(entry.kind == Kind.TASK && entry.canEdit(viewer)) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(entry.done, { onDone(entry) }); Text("Выполнено", style=MaterialTheme.typography.labelSmall) }
@@ -323,13 +338,13 @@ import java.time.LocalDate
         }
         }
         InvitationAcceptButton(entry,onAccept,Modifier.padding(horizontal=10.dp))
-        if(entry.invite==InviteState.ACCEPTED)Text("Принято",Modifier.padding(start=10.dp,bottom=8.dp),style=MaterialTheme.typography.labelSmall,color=colors.primary)
+        if(entry.invite==InviteState.ACCEPTED)Text("Принято",Modifier.padding(start=10.dp,bottom=if(compact)4.dp else 8.dp),style=MaterialTheme.typography.labelSmall,color=colors.primary)
         }
     }
 }
 
 @Composable fun InvitationAcceptButton(entry:Entry,onAccept:(Entry)->Unit,modifier:Modifier=Modifier) {
     if(entry.canAccept(LocalDemoIdentity.current.viewer)) {
-        TextButton({onAccept(entry)},modifier.semantics{contentDescription="Принять приглашение «${entry.title}»"}){Text(if(entry.proposal!=null)"Подтвердить изменения" else "Принять")}
+        Button({onAccept(entry)},modifier.semantics{contentDescription="Принять приглашение «${entry.title}»"}){Text(if(entry.proposal!=null)"Подтвердить изменения" else "Принять")}
     }
 }

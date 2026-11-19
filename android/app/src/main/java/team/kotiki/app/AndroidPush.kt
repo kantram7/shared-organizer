@@ -187,9 +187,9 @@ object AndroidPush {
             putExtra("push_collection_id",notice.collectionId);putExtra("push_item_id",notice.itemId)
         }
         val pending=PendingIntent.getActivity(context,0,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val public=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_meeting)
+        val public=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_notification_paw)
             .setContentTitle("Kotiki team").setContentText("Есть обновления. Открой приложение.").build()
-        val notification=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_meeting)
+        val notification=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_notification_paw)
             .setContentTitle(title).setContentText(body).setContentIntent(pending).setAutoCancel(true)
             .setNumber(1).setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL).addExtras(NotificationReadState.extras(notice.authUid,route))
             .setCategory(if(notice.kind=="chat")NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_EVENT)

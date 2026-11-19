@@ -1,7 +1,11 @@
 package team.kotiki.app
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,10 +26,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-@Composable fun NotesScreen(store:NotesStore,onHelp:(String)->Unit) {
+@Composable fun NotesScreen(store:NotesStore,manualOrder:LocalOrderStore,onHelp:(String)->Unit) {
     var selectedId by rememberSaveable{mutableStateOf("")}
     var archive by rememberSaveable{mutableStateOf(false)}
     var query by rememberSaveable{mutableStateOf("")}
@@ -45,7 +54,10 @@ import androidx.compose.ui.window.DialogProperties
             Text(store.error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             TextButton(store::retry){Text("Повторить")}
         } else Text(if(store.pending)"Сохранено на телефоне · ожидает синхронизации" else "Изменения сохраняются автоматически",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        val scroll=rememberScrollState()
+        var viewport by remember{mutableStateOf<Rect?>(null)}
+        CompositionLocalProvider(LocalReorderViewport provides ReorderViewport({viewport}){scroll.scrollBy(it)}) {
+        Column(Modifier.weight(1f).onGloballyPositioned{viewport=it.boundsInWindow()}.verticalScroll(scroll)) {
             if(query.isBlank()) {
                 CollectionTopics(groups.map{DemoCollection(it.id,it.name,it.shared,owner=it.owner,updatedAt=it.updatedAt)},selected?.id,true,onHelp,
                     onActions={id->rename=groups.find{it.id==id}}){selectedId=it}
@@ -68,15 +80,15 @@ import androidx.compose.ui.window.DialogProperties
                 }
             }
             val visible=store.notes.filter{n->val g=store.groupOf(n);g!=null && (n.archived||g.archived)==archive && (query.isNotBlank()||archive||n.groupId==selected?.id) && n.matches(query)}.sortedByDescending{it.updatedAt}
-            visible.forEach{note->key(note.id){
+            ReorderColumn(manualOrder,"notes/${selected?.id}",visible,{it.id},enabled=query.isBlank() && !archive) {note->
                 val group=store.groupOf(note)!!
                 var menu by remember{mutableStateOf(false)}
                 var purge by remember{mutableStateOf(false)}
-                Surface(Modifier.fillMaxWidth().padding(vertical=4.dp).combinedClickable(onClick={opened=note.id},onLongClick={menu=true}),shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surface) {
+                Surface(Modifier.fillMaxWidth().padding(vertical=4.dp).winterIcicles(note.id,if(note.id==manualOrder.sorted("notes/${selected?.id}",visible,{it.id}).lastOrNull()?.id)6.dp else 0.dp).clickable{opened=note.id},shape=RoundedCornerShape(14.dp),color=winterSurface(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.padding(start=12.dp,top=8.dp,bottom=8.dp),verticalAlignment=Alignment.Top) {
                         Column(Modifier.weight(1f)) {
-                            Text(note.label,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            Text(note.blocks.joinToString(" "){it.text}.ifBlank{"Пустая заметка"},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
+                            LinkText(note.label,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            LinkText(note.blocks.joinToString(" "){it.text}.ifBlank{"Пустая заметка"},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
                             if(query.isNotBlank()||archive)Text(group.name,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                             if(store.moving(note.id))Text("Перенос ожидает подтверждения сервера",style=MaterialTheme.typography.labelSmall)
                         }
@@ -94,8 +106,9 @@ import androidx.compose.ui.window.DialogProperties
                 }
                 if(purge)AlertDialog(onDismissRequest={purge=false},title={Text("Удалить заметку навсегда?")},text={Text("Восстановить её будет нельзя.")},
                     confirmButton={TextButton({store.purge(note);purge=false}){Text("Удалить")}},dismissButton={TextButton({purge=false}){Text("Отмена")}})
-            }}
+            }
             if(visible.isEmpty())Text(if(query.isNotBlank())"Ничего не найдено" else if(archive)"Архив пока пуст" else "Создай заметку: текст и списки могут быть в одной записи.",Modifier.padding(vertical=20.dp),style=MaterialTheme.typography.bodyMedium)
+        }
         }
         if(!archive)OutlinedButton({archive=true},Modifier.fillMaxWidth()){Text("Архив заметок")}
     }
@@ -130,8 +143,21 @@ import androidx.compose.ui.window.DialogProperties
     var menu by remember{mutableStateOf(false)}
     var folded by rememberSaveable{mutableStateOf(true)}
     val focus=remember{FocusRequester()};val keyboard=LocalSoftwareKeyboardController.current
+    var textFocus by remember{mutableStateOf<Pair<String,Int>?>(null)}
+    var focusGeneration by remember{mutableIntStateOf(0)}
+    fun focusBlank(blockId:String?=null) {
+        if(!editable)return
+        val latest=store.notes.find{it.id==id}?:return
+        val tail=latest.blocks.lastOrNull()
+        val block=if(blockId!=null)latest.blocks.find{it.id==blockId} else tail?.takeIf{it.kind==NoteBlockKind.TEXT}
+        if(block==null && latest.blocks.size>=200)return
+        val target=block?:NoteBlock()
+        val text=noteBlankLine(target.text)
+        store.edit(latest.copy(blocks=if(block==null)latest.blocks+target else latest.blocks.map{if(it.id==target.id)it.copy(text=text)else it}))
+        textFocus=target.id to ++focusGeneration
+    }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(Modifier.fillMaxWidth(.96f).fillMaxHeight(.93f).imePadding(),shape=RoundedCornerShape(24.dp)) {
+        EditorSurface(Modifier.fillMaxWidth(.96f).fillMaxHeight(.93f).imePadding(),shape=RoundedCornerShape(24.dp)) {
             Column(Modifier.padding(16.dp).focusRequester(focus).focusable()) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Text(group.name,Modifier.weight(1f),style=MaterialTheme.typography.labelLarge)
@@ -145,8 +171,14 @@ import androidx.compose.ui.window.DialogProperties
                     IconButton(onClose,Modifier.semantics{contentDescription="Закрыть заметку"}){KotikiIcon(Glyph.CLOSE)}
                 }
                 Text(if(store.error.isNotBlank())store.error else if(!editable && !store.moving(id))"Только просмотр" else if(store.moving(id))"Перенос ожидает сервера" else if(!group.shared)"Сохранено только на телефоне" else if(store.pending)"Сохранено на телефоне · отправляем" else "Сохранено",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                BoxWithConstraints(Modifier.weight(1f)) {
+                val viewportHeight=maxHeight
+                val density=LocalDensity.current
+                var contentHeight by remember{mutableStateOf(0.dp)}
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Column(Modifier.fillMaxWidth().onSizeChanged{contentHeight=with(density){it.height.toDp()}}) {
                     OutlinedTextField(note.title,{store.edit(note.copy(title=it))},Modifier.fillMaxWidth().padding(vertical=8.dp),placeholder={Text("Название")},readOnly=!editable,textStyle=MaterialTheme.typography.titleLarge)
+                    EditorLinks(note.title)
                     var number=0
                     note.blocks.filterNot{folded&&it.kind==NoteBlockKind.CHECK&&it.checked}.forEach{block->key(block.id){
                         if(block.kind==NoteBlockKind.NUMBERED)number++ else number=0
@@ -157,10 +189,10 @@ import androidx.compose.ui.window.DialogProperties
                                 NoteBlockKind.NUMBERED->Text("$number.",Modifier.padding(end=8.dp,top=8.dp))
                                 else->Unit
                             }
-                            BasicTextField(block.text,{value->store.edit(note.copy(blocks=note.blocks.map{if(it.id==block.id)it.copy(text=value)else it}))},
-                                Modifier.weight(1f).heightIn(min=40.dp).padding(vertical=8.dp).semantics{contentDescription="Текст блока"},readOnly=!editable,
-                                textStyle=(if(block.kind==NoteBlockKind.HEADING)MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge).copy(color=MaterialTheme.colorScheme.onSurface,fontWeight=if(block.bold)FontWeight.Bold else if(block.kind==NoteBlockKind.HEADING)FontWeight.SemiBold else FontWeight.Normal,textDecoration=if(block.checked)TextDecoration.LineThrough else TextDecoration.None),
-                                decorationBox={inner->Box{if(block.text.isEmpty())Text(if(block.kind==NoteBlockKind.TEXT)"Текст, ссылка…" else "Пункт…",color=MaterialTheme.colorScheme.onSurfaceVariant);inner()}})
+                            NoteBlockInput(block,editable,textFocus?.takeIf{it.first==block.id}?.second,Modifier.weight(1f),
+                                onBlank={focusBlank(block.id)},onText={value->
+                                    store.notes.find{it.id==id}?.let{latest->store.edit(latest.copy(blocks=latest.blocks.map{if(it.id==block.id)it.copy(text=value)else it}))}
+                                })
                             if(editable) {
                                 var blockMenu by remember{mutableStateOf(false)}
                                 Box {
@@ -173,9 +205,15 @@ import androidx.compose.ui.window.DialogProperties
                                 }
                             }
                         }
+                        EditorLinks(block.text)
                     }}
                     val done=note.blocks.count{it.kind==NoteBlockKind.CHECK&&it.checked}
                     if(done>0)TextButton({folded=!folded}){Text(if(folded)"Показать выполненные ($done)" else "Свернуть выполненные ($done)")}
+                }
+                Spacer(Modifier.fillMaxWidth().height((viewportHeight-contentHeight).coerceAtLeast(72.dp))
+                    .semantics{contentDescription="Продолжить заметку с новой строки"}
+                    .clickable(enabled=editable){focusBlank()})
+                }
                 }
                 if(editable)FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                     NoteBlockKind.entries.forEach{k->TextButton({store.edit(note.copy(blocks=note.blocks+NoteBlock(kind=k)))},enabled=note.blocks.size<200){Text("+ "+blockKindLabel(k),style=MaterialTheme.typography.labelSmall)}}
@@ -186,3 +224,24 @@ import androidx.compose.ui.window.DialogProperties
     }
 }
 private fun blockKindLabel(kind:NoteBlockKind)=when(kind){NoteBlockKind.TEXT->"Текст";NoteBlockKind.HEADING->"Заголовок";NoteBlockKind.BULLET->"Список";NoteBlockKind.NUMBERED->"Нумерация";NoteBlockKind.CHECK->"Чек-лист"}
+
+/** A blank tap reuses a trailing empty line instead of accumulating blank paragraphs. */
+internal fun noteBlankLine(text:String)=if(text.isEmpty()||text.endsWith("\n"))text else text+"\n"
+
+@Composable private fun NoteBlockInput(block:NoteBlock,editable:Boolean,focusGeneration:Int?,modifier:Modifier,onBlank:()->Unit,onText:(String)->Unit) {
+    var value by rememberSaveable(block.id,stateSaver=TextFieldValue.Saver){mutableStateOf(TextFieldValue(block.text))}
+    val requester=remember{FocusRequester()}
+    val keyboard=LocalSoftwareKeyboardController.current
+    // Reconcile during composition: a delayed effect could overwrite newer IME keystrokes.
+    if(value.text!=block.text)value=TextFieldValue(block.text,TextRange(value.selection.end.coerceAtMost(block.text.length)))
+    LaunchedEffect(focusGeneration){if(focusGeneration!=null && editable){value=TextFieldValue(block.text,TextRange(block.text.length));requester.requestFocus();keyboard?.show()}}
+    Column(modifier.padding(top=8.dp)) {
+        BasicTextField(value,{next->val changed=next.text!=value.text;value=next;if(changed)onText(next.text)},
+            Modifier.fillMaxWidth().focusRequester(requester).semantics{contentDescription="Текст блока"},readOnly=!editable,
+            textStyle=(if(block.kind==NoteBlockKind.HEADING)MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge).copy(
+                lineHeight=28.sp,color=MaterialTheme.colorScheme.onSurface,fontWeight=if(block.bold)FontWeight.Bold else if(block.kind==NoteBlockKind.HEADING)FontWeight.SemiBold else FontWeight.Normal,
+                textDecoration=if(block.checked)TextDecoration.LineThrough else TextDecoration.None),
+            decorationBox={inner->Box{if(value.text.isEmpty())Text(if(block.kind==NoteBlockKind.TEXT)"Текст, ссылка…" else "Пункт…",color=MaterialTheme.colorScheme.onSurfaceVariant);inner()}})
+        Spacer(Modifier.fillMaxWidth().height(12.dp).clickable(enabled=editable,onClick=onBlank))
+    }
+}

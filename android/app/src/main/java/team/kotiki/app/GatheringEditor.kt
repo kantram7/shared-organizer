@@ -20,8 +20,9 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /** A gathering is always a timed, shared invitation for both participants. */
-@Composable fun GatheringEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,calendarActions:(@Composable ()->Unit)?=null) {
+@Composable fun GatheringEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,calendarActions:(@Composable ()->Unit)?=null,reminderAccount:String?=null) {
     val context=LocalContext.current
+    val reminder=rememberEntryReminderDraft(reminderAccount,original.id)
     var title by rememberSaveable(original.id){mutableStateOf(original.title)}
     var note by rememberSaveable(original.id){mutableStateOf(original.note)}
     var date by rememberSaveable(original.id){mutableStateOf(original.date?.toString())}
@@ -34,8 +35,8 @@ import java.time.LocalTime
         TimePickerDialog(context,{_,h,m->onPick("%02d:%02d".format(java.util.Locale.ROOT,h,m))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),
-            shape=MaterialTheme.shapes.extraLarge,color=MaterialTheme.colorScheme.surface) {
+        EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),
+            shape=MaterialTheme.shapes.extraLarge) {
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Text("Собрать собрание котиков",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
@@ -53,12 +54,13 @@ import java.time.LocalTime
                         val day=date?.let(LocalDate::parse) ?: LocalDate.now()
                         DatePickerDialog(context,{_,y,m,d->date=LocalDate.of(y,m+1,d).toString()},day.year,day.monthValue-1,day.dayOfMonth).show()
                     },modifier=Modifier.fillMaxWidth()) {Text(date?.let{fullDayLabel(LocalDate.parse(it))} ?: "Выбрать дату")}
-                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton({pickTime(start,"19:00"){start=it}},Modifier.weight(1f)){Text(if(start.isEmpty())"Время начала" else "Начало $start")}
-                        OutlinedButton({pickTime(end,start.ifEmpty{"20:00"}){end=it}},Modifier.weight(1f)){Text(if(end.isEmpty())"Время окончания" else "Конец $end")}
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton({pickTime(start,"19:00"){start=it}},Modifier.weight(1f).fillMaxHeight()){Text(if(start.isEmpty())"Время начала" else "С $start")}
+                        OutlinedButton({pickTime(end,start.ifEmpty{"20:00"}){end=it}},Modifier.weight(1f).fillMaxHeight()){Text(if(end.isEmpty())"Время окончания" else "По $end")}
                     }
                     Text("Выбери дату, время начала и окончания. Приглашение будет ждать подтверждения второго участника.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации. Уведомление придёт, если они разрешены на его телефоне." else "В демоверсии сохраняется только на этом телефоне. Отправка второму участнику пока недоступна.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    EntryReminderEditor(original.copy(date=date?.let(LocalDate::parse),start=start,end=end),reminder)
                     if(calendarActions!=null) {
                         HorizontalDivider()
                         val calendarDirty=title.trim()!=original.title || note.trim()!=original.note || date!=original.date?.toString() || start!=original.start || end!=original.end
@@ -74,7 +76,7 @@ import java.time.LocalTime
                         week=day?.let(::mondayOf) ?: original.week,start=start,end=end,kind=Kind.EVENT,who=Person.BOTH,
                         visibility=Visibility.SHARED,isGathering=true,invite=InviteState.PENDING,done=false)
                     error=result.gatheringError()
-                    if(error==null)onSave(result)
+                    if(error==null && reminder.save(context,reminderAccount,result)){onSave(result);if(reminderAccount!=null)LocalReminders.reschedulePersisted(context)}
                 },modifier=Modifier.fillMaxWidth()){Text("Сохранить приглашение")}
             }
         }

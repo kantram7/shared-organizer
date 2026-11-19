@@ -50,7 +50,9 @@ import javax.crypto.spec.PBEKeySpec
 
 internal object PinPolicy {
     const val ITERATIONS=600_000
-    fun valid(pin:String)=pin.length in 4..12 && pin.all {it in '0'..'9'}
+    fun valid(pin:String)=pin.length in 4..6 && pin.all {it in '0'..'9'}
+    fun legacyValid(pin:String)=pin.length in 4..12 && pin.all{it in '0'..'9'}
+    fun needsReplacement(length:Int)=length !in 4..6
     fun derive(pin:CharArray,salt:ByteArray):ByteArray {
         val spec=PBEKeySpec(pin,salt,ITERATIONS,256)
         return try {SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded}
@@ -92,6 +94,9 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
     var busy by mutableStateOf(false);private set
     val initialized get()=state.optBoolean("initialized")
     val enabled get()=state.optBoolean("enabled")
+    val pinLength get()=state.optInt("pinLength",0)
+    val legacyPin get()=enabled && (pinLength==0 || needsNewPin)
+    val needsNewPin get()=state.optBoolean("needsNewPin")
     val biometric get()=state.optBoolean("biometric")
 
     init {
@@ -140,7 +145,7 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
     suspend fun verify(pin:String):String? {
         if(busy)return "Проверка уже выполняется"
         if(damaged)return "Не удалось прочитать защиту. Восстанови доступ через аккаунт."
-        if(!enabled || !PinPolicy.valid(pin))return "Введи PIN из 4–12 цифр"
+        if(!enabled || !(if(legacyPin)PinPolicy.legacyValid(pin) else PinPolicy.valid(pin)))return if(legacyPin)"Введи прежний PIN" else "Введи PIN из 4–6 цифр"
         if(remainingMillis()>0)return "Слишком много попыток. Подожди немного."
         busy=true
         return try {
@@ -151,7 +156,10 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
             val expected=state.getString("verifier").decoded()
             val actual=withContext(Dispatchers.Default){PinPolicy.derive(pin.toCharArray(),salt)}
             val correct=MessageDigest.isEqual(actual,expected);actual.fill(0);expected.fill(0)
-            if(correct){state.put("failures",0);persist();authorize();null}else "Неверный PIN"
+            if(correct){
+                state.put("failures",0).put("pinLength",pin.length).put("needsNewPin",PinPolicy.needsReplacement(pin.length))
+                persist();authorize();null
+            }else "Неверный PIN"
         } catch(cancelled:CancellationException){unlocked=false;throw cancelled}
         catch(_:Exception){damaged=true;unlocked=false;"Не удалось проверить PIN. Восстанови доступ через аккаунт."}
         finally {busy=false}
@@ -159,16 +167,16 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
     suspend fun configure(pin:String,confirmation:String,enable:Boolean):String? {
         if(busy)return "Подожди завершения проверки"
         if(damaged)return "Сначала восстанови доступ через аккаунт"
-        if(enable && (!PinPolicy.valid(pin) || pin!=confirmation))return "Введи два одинаковых PIN из 4–12 цифр"
-        if(initialized && enabled)try{requireGrant()}catch(_:Exception){return "Подтверди текущий PIN ещё раз"}
+        if(enable && (!PinPolicy.valid(pin) || pin!=confirmation))return "Введи два одинаковых PIN из 4–6 цифр"
+        if(initialized && enabled)try{requireGrant()}catch(_:Exception){unlocked=false;return "Подтверди текущий PIN ещё раз"}
         busy=true
         return try {
             if(enable) {
                 val salt=ByteArray(32).also{SecureRandom().nextBytes(it)}
                 val hash=withContext(Dispatchers.Default){PinPolicy.derive(pin.toCharArray(),salt)}
-                state.put("salt",salt.encoded()).put("verifier",hash.encoded());hash.fill(0)
-            }else {state.remove("salt");state.remove("verifier")}
-            state.put("initialized",true).put("enabled",enable).put("biometric",false).put("failures",0)
+                state.put("salt",salt.encoded()).put("verifier",hash.encoded()).put("pinLength",pin.length);hash.fill(0)
+            }else {state.remove("salt");state.remove("verifier");state.remove("pinLength")}
+            state.put("needsNewPin",false).put("initialized",true).put("enabled",enable).put("biometric",false).put("failures",0)
             persist();keys.deleteEntry(bioAlias);authorize();null
         } catch(cancelled:CancellationException){unlocked=false;throw cancelled}
         catch(_:Exception){unlocked=false;damaged=true;"Не удалось сохранить защиту. Восстанови доступ через аккаунт."}
@@ -202,6 +210,7 @@ private fun Context.activity():Activity?=when(this){is Activity->this;is Context
                         val challenge=ByteArray(32).also{SecureRandom().nextBytes(it)}
                         requireNotNull(result.cryptoObject?.cipher).doFinal(challenge)
                         if(enroll)state.put("biometric",true)
+                        if(legacyPin)state.put("needsNewPin",true)
                         state.put("failures",0);persist();authorize();onResult(null)
                     }catch(_:Exception){onResult("Биометрия изменилась. Войди по PIN и включи её заново.")}
                     prompt=null
@@ -261,7 +270,7 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
         RetainedForegroundContent(foreground) {
             when {
                 lock.damaged || lock.initialized && lock.enabled && !lock.unlocked->UnlockPanel(lock,foreground)
-                !lock.initialized->LockSetup(lock)
+                !lock.initialized || lock.needsNewPin->LockSetup(lock)
                 else->screenState.SaveableStateProvider(authUid){content()}
             }
         }
@@ -275,8 +284,8 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
     }
 }
 
-@Composable private fun PinInput(value:String,onChange:(String)->Unit,label:String) {
-    OutlinedTextField(value,{onChange(it.filter{c->c in '0'..'9'}.take(12))},Modifier.fillMaxWidth(),
+@Composable private fun PinInput(value:String,onChange:(String)->Unit,label:String,maxLength:Int=6) {
+    OutlinedTextField(value,{onChange(it.filter{c->c in '0'..'9'}.take(maxLength))},Modifier.fillMaxWidth(),
         label={Text(label)},singleLine=true,visualTransformation=PasswordVisualTransformation(),
         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.NumberPassword))
 }
@@ -293,17 +302,26 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
             if(lock.takeAutomaticBiometricAttempt())lock.authenticateBiometric(context){error=it}
         }
     }
-    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(28.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+    fun submit(value:String) { pin="";scope.launch{error=lock.verify(value)} }
+    if(!lock.damaged && !lock.legacyPin) {
+        PinKeypad(pin,lock.pinLength.coerceIn(4,6),enabled=!lock.busy && remaining==0L,
+            biometric=lock.biometric,onDigit={digit->
+                if(!lock.busy && remaining==0L) {val next=pin+digit;pin=next;if(next.length==lock.pinLength)submit(next)}
+            },onBackspace={pin=pin.dropLast(1)},onBiometric={lock.authenticateBiometric(context){error=it}},
+            onRecover={recovery=true},error=if(remaining>0)"Следующая попытка через ${(remaining+999)/1000} с" else error)
+    } else Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).padding(28.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         Text("Kotiki team",style=MaterialTheme.typography.headlineMedium)
-        Text("Открой наше пространство",style=MaterialTheme.typography.titleLarge)
-        if(!lock.damaged){
-            PinInput(pin,{pin=it},"PIN приложения")
-            if(remaining>0)Text("Следующая попытка через ${(remaining+999)/1000} с")
-            Button(onClick={val attempt=pin;pin="";scope.launch{error=lock.verify(attempt)}},enabled=!lock.busy && remaining==0L && PinPolicy.valid(pin),modifier=Modifier.fillMaxWidth()){Text("Открыть")}
-            if(lock.biometric)OutlinedButton(onClick={lock.authenticateBiometric(context){error=it}},enabled=!lock.busy,modifier=Modifier.fillMaxWidth()){Text("Войти по биометрии")}
-        }else Text("Локальная защита недоступна. Подтверди облачный аккаунт для восстановления.")
+        if(lock.damaged)Text("Локальная защита недоступна. Подтверди облачный аккаунт для восстановления.")
+        else {
+            Text("Один раз введи прежний PIN",style=MaterialTheme.typography.titleLarge)
+            Text("После обновления уточним длину кода. Если в нём больше 6 цифр, попросим задать новый. Записи и личные заметки сохранятся.")
+            PinInput(pin,{pin=it},"Прежний PIN",12)
+            Button({submit(pin)},enabled=!lock.busy && remaining==0L && PinPolicy.legacyValid(pin),modifier=Modifier.fillMaxWidth()){Text("Продолжить")}
+            if(lock.biometric)OutlinedButton({lock.authenticateBiometric(context){error=it}},enabled=!lock.busy,modifier=Modifier.fillMaxWidth()){Text("Войти по биометрии")}
+        }
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        TextButton(onClick={recovery=true}){Text("Забыл PIN")}
+        if(remaining>0)Text("Следующая попытка через ${(remaining+999)/1000} с")
+        TextButton({recovery=true}){Text("Забыл PIN")}
     }
     if(recovery)RecoveryDialog(lock){recovery=false}
 }
@@ -321,11 +339,13 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
     var enabled by remember{mutableStateOf(true)};var bio by remember{mutableStateOf(true)}
     var error by remember{mutableStateOf<String?>(null)}
     Column(Modifier.fillMaxWidth().imePadding().then(if(embedded)Modifier else Modifier.verticalScroll(rememberScrollState())).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-        Text(if(lock.initialized)"Изменить PIN" else "Защити наше пространство",style=MaterialTheme.typography.titleLarge)
+        Text(if(lock.needsNewPin)"Задай новый PIN" else if(lock.initialized)"Изменить PIN" else "Защити наше пространство",style=MaterialTheme.typography.titleLarge)
         Text("PIN хранится только на этом устройстве. Это отдельный код, не пароль облачного аккаунта.")
         Row{Checkbox(enabled,{enabled=it});Text("Вход по PIN")}
+        if(lock.needsNewPin)Text("Обновлённые правила: только 4–6 цифр. Меняется лишь локальный PIN; аккаунт, записи и заметки сохраняются.")
         if(enabled){
-            PinInput(pin,{pin=it},"Новый PIN: 4–12 цифр");PinInput(confirm,{confirm=it},"Повтори PIN")
+            Text("Только цифры. Длина PIN — от 4 до 6 цифр.",color=MaterialTheme.colorScheme.primary)
+            PinInput(pin,{pin=it},"Новый PIN: 4–6 цифр");PinInput(confirm,{confirm=it},"Повтори PIN")
             Row{Checkbox(bio,{bio=it});Text("Вход по биометрии")}
         }
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
@@ -361,7 +381,7 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
             if(!verified){
                 Text("Для изменений подтверди текущий PIN")
-                PinInput(pin,{pin=it},"Текущий PIN")
+                PinInput(pin,{pin=it},"Текущий PIN",if(lock.legacyPin)12 else 6)
                 Button(enabled=!lock.busy && PinPolicy.valid(pin),onClick={val attempt=pin;pin="";scope.launch{error=lock.verify(attempt);if(error==null)verified=true}}){Text("Подтвердить PIN")}
             }else{
                 if(lock.enabled){
@@ -375,5 +395,5 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
             }
             error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         }
-    },confirmButton={TextButton(onClick={edit=false},enabled=!lock.busy){Text("Закрыть")}})
+    },confirmButton={QuietCloseButton(onClick={edit=false},enabled=!lock.busy)})
 }

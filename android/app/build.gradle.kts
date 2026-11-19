@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val winterPreview = providers.environmentVariable("KOTIKI_WINTER_PREVIEW").orNull == "1"
+if (winterPreview) {
+    require(providers.environmentVariable("KOTIKI_AGENT_TEST").orNull != "1") { "Winter preview cannot use agent accounts" }
+    require(gradle.startParameter.taskNames.none { it.contains("release", ignoreCase = true) }) { "Winter preview is debug-only" }
+}
 val agentTest = providers.environmentVariable("KOTIKI_AGENT_TEST").orNull == "1"
 val agentAssets = providers.environmentVariable("KOTIKI_AGENT_ASSETS").orNull
 if (agentTest) {
@@ -10,7 +15,7 @@ if (agentTest) {
     require(gradle.startParameter.taskNames.none { it.contains("release", ignoreCase = true) }) { "Agent mode is debug-only" }
 }
 // The local Firebase config is ignored by Git; source-only builds remain available without it.
-if (!agentTest && file("google-services.json").isFile) {
+if (!agentTest && !winterPreview && file("google-services.json").isFile) {
     apply(plugin = "com.google.gms.google-services")
 }
 val testRuntime = rootProject.file(providers.environmentVariable("KOTIKI_RUNTIME_DIR").orNull ?: ".local")
@@ -21,9 +26,10 @@ android {
         applicationId = "team.kotiki.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.3.3"
+        versionCode = 16
+        versionName = "0.3.5"
         buildConfigField("boolean", "AGENT_TEST", "false")
+        buildConfigField("boolean", "WINTER_PREVIEW", "false")
         resValue("string", "app_name", "Kotiki team")
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -37,6 +43,10 @@ android {
     // Optional local aliases for updating installations from private prototypes.
     providers.environmentVariable("KOTIKI_MIGRATION_ASSETS")?.orNull?.let {
         sourceSets.getByName("main").assets.srcDir(it)
+    }
+    if (winterPreview) {
+        sourceSets.getByName("debug").java.srcDir(rootProject.file("testing/winter/android"))
+        sourceSets.getByName("debug").manifest.srcFile(rootProject.file("testing/winter/AndroidManifest.xml"))
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -58,6 +68,12 @@ android {
     }
     buildTypes {
         debug {
+            if (winterPreview) {
+                applicationIdSuffix = ".winterpreview"
+                versionNameSuffix = "-winter-design-v2"
+                buildConfigField("boolean", "WINTER_PREVIEW", "true")
+                resValue("string", "app_name", "Kotiki team · Winter preview")
+            }
             if (agentTest) {
                 applicationIdSuffix = ".agents"
                 versionNameSuffix = "-agents"
@@ -89,6 +105,7 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-config")
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))

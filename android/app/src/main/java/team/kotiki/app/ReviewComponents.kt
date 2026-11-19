@@ -26,8 +26,8 @@ val LocalRecordCanDelete=staticCompositionLocalOf<(Entry)->Boolean>{{false}}
 
 @Composable fun ItemActions(title:String,onDelete:(()->Unit)?,state:ItemMenuState=rememberItemMenu(),
     onEdit:(()->Unit)?=null,onOpen:(()->Unit)?=null,
-    deleteMessage:String="Запись будет удалена. Продолжить?",compactGear:Boolean=false) {
-    if(onDelete==null && onEdit==null && onOpen==null)return
+    deleteMessage:String="Запись будет удалена. Продолжить?",compactGear:Boolean=false,onCopy:(()->Unit)?=null) {
+    if(onDelete==null && onEdit==null && onOpen==null && onCopy==null)return
     val actionColor=MaterialTheme.colorScheme.primary
     Box {
         IconButton({state.expanded=true},Modifier.size(if(compactGear)40.dp else 48.dp).semantics{contentDescription="Действия: $title"}) {
@@ -37,6 +37,7 @@ val LocalRecordCanDelete=staticCompositionLocalOf<(Entry)->Boolean>{{false}}
             }
         }
         DropdownMenu(state.expanded,{state.expanded=false}) {
+            onCopy?.let{DropdownMenuItem(text={Text("Копировать")},onClick={state.expanded=false;it()})}
             onOpen?.let{DropdownMenuItem(text={Text("Подробнее")},onClick={state.expanded=false;it()})}
             onEdit?.let{DropdownMenuItem(text={Text("Редактировать")},onClick={state.expanded=false;it()})}
             if(onDelete!=null)DropdownMenuItem(text={Text("Удалить",color=MaterialTheme.colorScheme.error)},onClick={state.expanded=false;state.confirming=true})

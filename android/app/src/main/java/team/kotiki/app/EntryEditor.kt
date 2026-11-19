@@ -3,7 +3,6 @@ package team.kotiki.app
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,17 +22,20 @@ import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
 import java.time.LocalTime
 
-@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null,calendarActions:(@Composable ()->Unit)?=null,isNew:Boolean=false) {
-    if(original.isGathering){GatheringEditor(original,onDismiss,onSave,calendarActions);return}
+internal fun initialEntryTimed(entry:Entry,isNew:Boolean)=entry.start.isNotEmpty() || isNew && entry.kind==Kind.EVENT && entry.date!=null
+
+@Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null,calendarActions:(@Composable ()->Unit)?=null,isNew:Boolean=false,reminderAccount:String?=null) {
+    if(original.isGathering){GatheringEditor(original,onDismiss,onSave,calendarActions,reminderAccount);return}
     val context=LocalContext.current
     val viewer=LocalDemoIdentity.current.viewer
+    val reminder=rememberEntryReminderDraft(reminderAccount,original.id)
     val cloud=LocalCloudMode.current
     var title by rememberSaveable(original.id) { mutableStateOf(original.title) }
     var note by rememberSaveable(original.id) { mutableStateOf(original.note) }
     var kind by rememberSaveable(original.id) { mutableStateOf(original.kind) }
     var date by rememberSaveable(original.id) { mutableStateOf(original.date) }
     var last by rememberSaveable(original.id) { mutableStateOf(original.lastDate ?: original.date) }
-    var timed by rememberSaveable(original.id) { mutableStateOf(original.start.isNotEmpty()) }
+    var timed by rememberSaveable(original.id) { mutableStateOf(initialEntryTimed(original,isNew)) }
     var start by rememberSaveable(original.id) { mutableStateOf(original.start.ifEmpty { "19:00" }) }
     var end by rememberSaveable(original.id) { mutableStateOf(original.end.ifEmpty { "20:00" }) }
     var who by rememberSaveable(original.id) { mutableStateOf(original.who) }
@@ -59,10 +61,10 @@ import java.time.LocalTime
         TimePickerDialog(context,{_,h,m->onPick("%02d:%02d".format(h,m))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge,color=MaterialTheme.colorScheme.surface) {
+        EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge) {
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 val actions=rememberItemMenu()
-                Row(Modifier.combinedClickable(onClick={},onLongClick={if(onDelete!=null)actions.expanded=true}),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier,verticalAlignment=Alignment.CenterVertically) {
                     Text(if(original.invite==InviteState.PENDING)if(LocalCloudMode.current)"Приглашение" else "Приглашение · демо" else if(original.title.isEmpty())"Новая запись" else "Редактирование",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                     if(onDelete!=null)ItemActions(original.title,onDelete,actions)
                     IconButton(onClick=onDismiss,modifier=Modifier.semantics{contentDescription="Закрыть редактирование"}){KotikiIcon(Glyph.CLOSE)}
@@ -71,9 +73,10 @@ import java.time.LocalTime
                 OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth().bringIntoViewRequester(titleTarget),label={Text("Название")},singleLine=true,
                     isError=error=="Укажи название",supportingText={if(error=="Укажи название")Text(error)})
                 OutlinedTextField(note,{note=it.take(300)},Modifier.fillMaxWidth(),label={Text("Комментарий")},minLines=2)
+                EditorLinks(title+"\n"+note)
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilterChip(kind==Kind.EVENT,{kind=Kind.EVENT;if(date==null)date=LocalDate.now()},label={Text("Событие")})
-                    FilterChip(kind==Kind.TASK,{kind=Kind.TASK},label={Text("Дело")})
+                    FilterChip(kind==Kind.EVENT,{if(isNew && kind!=Kind.EVENT)timed=true;kind=Kind.EVENT;if(date==null)date=LocalDate.now()},label={Text("Событие")})
+                    FilterChip(kind==Kind.TASK,{if(isNew && kind!=Kind.TASK)timed=false;kind=Kind.TASK},label={Text("Дело")})
                 }
                 Text("Участники",style=MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
@@ -89,8 +92,8 @@ import java.time.LocalTime
                 if(date!=null) {
                     Row(verticalAlignment=Alignment.CenterVertically){Checkbox(timed,{timed=it});Text("Есть точное время")}
                     if(timed)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick={pickTime(start){start=it}},modifier=Modifier.weight(1f)){Text(start)}
-                        OutlinedButton(onClick={pickTime(end){end=it}},modifier=Modifier.weight(1f)){Text(end)}
+                        OutlinedButton(onClick={pickTime(start){start=it}},modifier=Modifier.widthIn(min=104.dp)){Text("С $start")}
+                        OutlinedButton(onClick={pickTime(end){end=it}},modifier=Modifier.widthIn(min=104.dp)){Text("По $end")}
                     }
                 }
                 if(error.isNotEmpty() && error!="Укажи название")Text(error,color=MaterialTheme.colorScheme.error)
@@ -100,6 +103,7 @@ import java.time.LocalTime
                     Row(verticalAlignment=Alignment.CenterVertically){Checkbox(editable,{editable=it},enabled=shared && (!LocalCloudMode.current || original.owner==viewer));Text("Совместное редактирование")}
                     if(isNew && !shared)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(busy,{busy=it});Text("Показывать занятость")}
                 } else Text(if(LocalCloudMode.current)"Приглашение появится у второго участника после синхронизации." else "Сохранится только пример на этом телефоне. Другой участник не получит приглашение.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(calendarDraft.who==viewer || calendarDraft.who==Person.BOTH)EntryReminderEditor(calendarDraft,reminder)
                 if(calendarActions!=null) {
                     HorizontalDivider()
                     if(calendarDraft!=original)Text("Сначала сохрани изменения, затем обнови копию в календаре.",style=MaterialTheme.typography.bodySmall)
@@ -118,9 +122,11 @@ import java.time.LocalTime
                         else->""
                     }
                     if(error.isNotEmpty())scope.launch {if(error=="Укажи название")titleTarget.bringIntoView() else dateTarget.bringIntoView()}
-                    if(error.isEmpty())onSave(original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=finalLast,
+                    if(error.isEmpty()) { val result=original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=finalLast,
                         week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
-                        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable))
+                        who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable)
+                        if((result.who!=viewer && result.who!=Person.BOTH) || reminder.save(context,reminderAccount,result)){onSave(result);if(reminderAccount!=null)LocalReminders.reschedulePersisted(context)}
+                    }
                 },modifier=Modifier.fillMaxWidth()){Text(if(original.invite==InviteState.NONE || LocalCloudMode.current)"Сохранить" else "Сохранить пример")}
             }
         }

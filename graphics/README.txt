@@ -20,3 +20,9 @@ settings.svg — контурная шестерёнка; menu.svg — кноп�
 Иконки участников
 cat-face.svg — Пользователь 1; cat-girl.svg — Пользователь 2, с бантом. pair.svg объединяет обе мордочки без уменьшения: 48×24, каждая 24×24.
 cat-girl.svg содержит маску просвета вокруг банта. Она и парная композиция рисуются в Compose (ui/icons/CatGirlIcon.kt и KotikiIcons.kt) исходными векторными контурами; без растрового преобразования. SVG-конвертер намеренно пропускает эти два файла. Просвет выполняется через BlendMode.Clear в отдельном слое, поэтому работает на разных фонах и в тёмной теме.
+
+Архив дизайна v1: mockups/winter-together-v1.html — сохранённый дизайн; themes/winter-together-v1/design.txt — статус, палитра и ограничения. Нативный вектор леса — android/drawable/winter_forest.xml. Актуальная реализация v2 встроена в APK 0.3.4; удалённый флаг пока выключен.
+
+Зима вместе v2: themes/winter-together-v2 и mockups/winter-together-v2.html. Архив v1 сохранён отдельно.
+
+Значок уведомлений 0.3.5: icons/notification-paw.svg — исходный вектор; android/drawable/ic_notification_paw.xml — одноцветный Android VectorDrawable. Используется для push, локальных напоминаний и превью уведомлений.

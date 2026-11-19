@@ -22,6 +22,7 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     } ?: Person.USER_1
     var identity by mutableStateOf(cloudSession?.identity ?: DemoIdentity(viewer, preset?.names ?: emptyMap(), preset != null))
         private set
+    val manualOrder=LocalOrderStore(context,localProfileKey(cloudSession,viewer))
     val notes=NotesStore(context,viewer,cloudSession)
     var profileError by mutableStateOf("")
     var profilePending by mutableStateOf(false)

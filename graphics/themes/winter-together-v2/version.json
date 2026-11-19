@@ -1,0 +1,10 @@
+{
+  "design": "winter-together",
+  "name": "Зима вместе",
+  "version": 2,
+  "apk": "0.3.4",
+  "activation": "automatic-remote",
+  "remoteParameter": "winter_together_enabled",
+  "defaultEnabled": false,
+  "mockupSha256": "f5286ebd0d6216d8cc19966bf8810db9fc931de7b7a7deb25487c6872042b782"
+}
