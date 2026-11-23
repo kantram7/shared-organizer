@@ -95,11 +95,14 @@ import java.time.temporal.ChronoUnit
         Text("Оформление",style=MaterialTheme.typography.titleMedium)
         val winterPreview=BuildConfig.DEBUG && BuildConfig.WINTER_PREVIEW
         if(!winterDesignEnabled() || winterPreview) {
-            val themes=listOf("system" to "Как на телефоне","light" to "Светлая","dark" to "Тёмная") +
-                if(winterPreview)listOf("winter" to "Зима вместе")else emptyList()
+            val themes=listOf("system" to "Как на телефоне","light" to "Светлая","dark" to "Тёмная","winter" to "Зима вместе")
             Column(Modifier.selectableGroup()) {
                 themes.forEach { (value,label)->
-                    Row(Modifier.fillMaxWidth().selectable(selected=store.theme==value,role=Role.RadioButton,onClick={store.updateTheme(value)}),verticalAlignment=Alignment.CenterVertically){RadioButton(store.theme==value,null);Text(label)}
+                    val available=value!="winter" || winterPreview
+                    Row(Modifier.fillMaxWidth().selectable(selected=store.theme==value && available,enabled=available,role=Role.RadioButton,onClick={store.updateTheme(value)}),verticalAlignment=Alignment.CenterVertically){
+                        RadioButton(store.theme==value && available,null,enabled=available)
+                        Text(label,color=if(available)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha=.38f))
+                    }
                 }
             }
         } else Text("Зима вместе",style=MaterialTheme.typography.bodyMedium)

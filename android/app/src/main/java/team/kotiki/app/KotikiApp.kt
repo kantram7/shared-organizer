@@ -238,32 +238,30 @@ import java.time.LocalDate
         NavigationItem(Section.SETTINGS,page==Section.SETTINGS,expanded){onSelect(Section.SETTINGS)}
     }
 }
-@Composable private fun GatherCatsButton(expanded:Boolean,onClick:()->Unit) {
-    val label="Общий сбор"
-    val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp)).clickable(onClickLabel=label,onClick=onClick).padding(vertical=11.dp)
-    if(expanded)Row(modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-        KotikiIcon(Glyph.MEETING,Modifier.size(24.dp))
-        Text(label,Modifier.weight(1f))
-    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        KotikiIcon(Glyph.MEETING,Modifier.size(24.dp))
-        Text(label,fontSize=9.sp,lineHeight=11.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center,
-            color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+@Composable internal fun GatherCatsButton(expanded:Boolean,onClick:()->Unit) {
+    NavigationCell("Общий сбор",Glyph.MEETING,false,expanded,0,"",onClick)
 }
-@Composable private fun NavigationItem(section:Section,selected:Boolean,expanded:Boolean,unread:Int=0,onClick:()->Unit) {
+@Composable internal fun NavigationItem(section:Section,selected:Boolean,expanded:Boolean,unread:Int=0,onClick:()->Unit) {
     val glyph=when(section){Section.BOARD->Glyph.BOARD;Section.PLANS->Glyph.PLANS;Section.CALENDAR->Glyph.CALENDAR;Section.LISTS->Glyph.LIST;Section.INVITES->Glyph.MAIL;Section.CHAT->Glyph.CHAT;Section.SETTINGS->Glyph.SETTINGS}
+    NavigationCell(section.label,glyph,selected,expanded,unread,
+        if(section==Section.INVITES)"Непрочитанных приглашений" else "Непрочитанных сообщений",onClick)
+}
+@Composable private fun NavigationCell(label:String,glyph:Glyph,selected:Boolean,expanded:Boolean,unread:Int,badgeLabel:String,onClick:()->Unit) {
     val color=if(selected)winterSurface(MaterialTheme.colorScheme.primaryContainer) else if(winterDesignEnabled())Color.Transparent else MaterialTheme.colorScheme.surface
-    val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color).clickable(onClick=onClick).padding(vertical=11.dp)
-    if(expanded)Row(modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-        NavigationGlyph(glyph,unread,if(section==Section.INVITES)"Непрочитанных приглашений" else "Непрочитанных сообщений");Text(section.label)
-    } else Column(modifier,horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        NavigationGlyph(glyph,unread,if(section==Section.INVITES)"Непрочитанных приглашений" else "Непрочитанных сообщений");Text(section.label,fontSize=9.sp,maxLines=1,color=if(selected)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    val modifier=Modifier.padding(horizontal=3.dp,vertical=3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        .background(color).clickable(onClickLabel=label,onClick=onClick)
+    if(expanded)Row(modifier.heightIn(min=48.dp).padding(horizontal=16.dp,vertical=8.dp),
+        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+        NavigationGlyph(glyph,unread,badgeLabel);Text(label,Modifier.weight(1f))
+    } else Column(modifier.padding(vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        NavigationGlyph(glyph,unread,badgeLabel)
+        Text(label,fontSize=9.sp,lineHeight=11.sp,maxLines=1,
+            color=if(selected)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable internal fun NavigationGlyph(glyph:Glyph,unread:Int,label:String="Непрочитанных сообщений") {
-    BadgedBox(badge={if(unread>0)Badge(Modifier.semantics{contentDescription="$label: ${if(unread>99)"больше 99" else unread}"}){Text(if(unread>99)"99+" else unread.toString())}}){KotikiIcon(glyph)}
+    BadgedBox(modifier=Modifier.size(24.dp),badge={if(unread>0)Badge(Modifier.offset(x=(-4).dp).semantics{contentDescription="$label: ${if(unread>99)"больше 99" else unread}"}){Text(if(unread>99)"99+" else unread.toString())}}){KotikiIcon(glyph)}
 }
 
 @Composable fun ScreenHeading(title: String, action: String? = null, onAction: () -> Unit = {}) {

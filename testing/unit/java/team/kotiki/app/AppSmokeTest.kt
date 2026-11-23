@@ -1,5 +1,6 @@
 package team.kotiki.app
 
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -31,7 +32,7 @@ class AppSmokeTest {
     @Before fun waitForWelcome(){compose.mainClock.advanceTimeBy(2200);compose.waitForIdle();if(compose.onAllNodesWithText("Посмотреть локальное демо").fetchSemanticsNodes().isNotEmpty())compose.onNodeWithText("Посмотреть локальное демо").performScrollTo().performClick()}
     @Test fun winterIsNotSelectableBeforeRemoteLaunchAndSystemButtonsStayTransparent() {
         compose.onNodeWithText("Настройки").performClick()
-        compose.onNodeWithText("Зима вместе").assertDoesNotExist()
+        compose.onNodeWithText("Зима вместе").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithText("Зима вместе · скоро").assertDoesNotExist()
         org.junit.Assert.assertFalse(compose.activity.window.isNavigationBarContrastEnforced)
         @Suppress("DEPRECATION")
