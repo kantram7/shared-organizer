@@ -246,14 +246,14 @@ import java.util.Locale
 
         }
     }
-    Row(Modifier.fillMaxWidth().padding(start=if(own)22.dp else 0.dp,end=if(own)0.dp else 22.dp).padding(bottom=14.dp),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start){
+    val visibleReactions=reactions.values.flatten().distinct().take(3)
+    Row(Modifier.fillMaxWidth().padding(start=if(own)22.dp else 0.dp,end=if(own)0.dp else 22.dp).padding(bottom=if(visibleReactions.isNotEmpty())14.dp else 0.dp),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start){
         Box {
         Surface(Modifier.widthIn(max=350.dp).testTag("message-bubble-${message.id}"),shape=RoundedCornerShape(16.dp),color=if(winterDesignEnabled())androidx.compose.ui.graphics.Color(if(own)0xFFF1E6D3 else 0xFFD9ECE2).copy(alpha=.94f) else winterSurface(if(own)colors.primaryContainer else colors.secondaryContainer)){
             Box(Modifier.padding(horizontal=10.dp,vertical=3.dp)){
                 if(first)FirstMessageContent(senderName,message.role,metadata,body) else body()
             }
         }
-        val visibleReactions=reactions.values.flatten().distinct().take(3)
         if(visibleReactions.isNotEmpty())Row(Modifier.align(Alignment.BottomEnd).offset(x=(-10).dp,y=12.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
             visibleReactions.forEach { emoji ->
                 Surface(shape=CircleShape,color=colors.surface,border=androidx.compose.foundation.BorderStroke(1.dp,colors.primary.copy(alpha=if(own).25f else .65f))) {
