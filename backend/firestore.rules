@@ -268,10 +268,18 @@ service cloud.firestore {
           }
           match /reactions/{uid} {
             allow read: if member(s) && activeChat(chatId) && messageActive();
-            allow create, update: if member(s) && activeChat(chatId) && messageActive() && uid == principal(s)
-              && request.resource.data.keys().hasOnly(['emoji','updatedAt','actor']) && request.resource.data.actor == request.auth.uid
-              && request.resource.data.updatedAt == request.time && request.resource.data.emoji in ['💜','👍','🐾','😊'];
-            allow delete: if member(s) && activeChat(chatId) && uid == principal(s);
+            function recipientOnly() { return get(/databases/$(database)/documents/spaces/$(s)/chats/$(chatId)/messages/$(messageId)).data.sender != principal(s); }
+            function validChoices(d) {
+              let allowed = ['💜','🐾','👍','😊','🔥','👌','🤔','❤️','👀','❄️','🥶'];
+              let choices = d.get('emojis',[d.emoji]);
+              return choices is list && choices.size() >= 1 && choices.size() <= 3
+                && choices.toSet().size() == choices.size() && choices.hasOnly(allowed)
+                && d.emoji == choices[0];
+            }
+            allow create, update: if member(s) && activeChat(chatId) && messageActive() && uid == principal(s) && recipientOnly()
+              && request.resource.data.keys().hasOnly(['emoji','emojis','updatedAt','actor']) && request.resource.data.actor == request.auth.uid
+              && request.resource.data.updatedAt == request.time && validChoices(request.resource.data);
+            allow delete: if member(s) && activeChat(chatId) && uid == principal(s) && recipientOnly();
           }
         }
       }

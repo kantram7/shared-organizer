@@ -28,6 +28,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.lifecycle.Lifecycle
@@ -141,10 +143,17 @@ import java.util.Locale
                         TextButton({choose(if(searchIndex<0)results.lastIndex else (searchIndex-1+results.size)%results.size)},enabled=results.isNotEmpty()){Text("Предыдущее")}
                         TextButton({choose((searchIndex+1)%results.size)},enabled=results.isNotEmpty()){Text("Следующее")}
                     }
-                    LazyColumn(Modifier.heightIn(max=160.dp)){itemsIndexed(results,key={_,m->m.id}){index,m->
-                        Text(chatSearchHighlighted(chatSearchExcerpt(richPlainText(m.text,m.format),searchText.trim()),searchText.trim(),MaterialTheme.colorScheme.primaryContainer),
-                            Modifier.fillMaxWidth().clickable{choose(index)}.padding(10.dp),style=MaterialTheme.typography.bodySmall)
-                    }}
+                    Surface(Modifier.fillMaxWidth().padding(bottom=6.dp),shape=RoundedCornerShape(12.dp),
+                        color=MaterialTheme.colorScheme.surface.copy(alpha=.90f),
+                        border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.primary.copy(alpha=.24f))) {
+                        LazyColumn(Modifier.heightIn(max=160.dp)){itemsIndexed(results,key={_,m->m.id}){index,m->
+                            Column(Modifier.fillMaxWidth().background(if(index==searchIndex)MaterialTheme.colorScheme.primaryContainer.copy(alpha=.75f)else Color.Transparent).clickable{choose(index)}) {
+                                Text(chatSearchHighlighted(chatSearchExcerpt(richPlainText(m.text,m.format),searchText.trim()),searchText.trim(),MaterialTheme.colorScheme.primaryContainer),
+                                    Modifier.fillMaxWidth().padding(10.dp),style=MaterialTheme.typography.bodySmall)
+                                if(index<results.lastIndex)HorizontalDivider(color=MaterialTheme.colorScheme.primary.copy(alpha=.12f))
+                            }
+                        }}
+                    }
                 }
             }
             if(snapshot.loading)LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -205,7 +214,11 @@ import java.util.Locale
     var quote by remember(message.replyTo){mutableStateOf<ChatMessage?>(null)}
     DisposableEffect(chats,message.replyTo){val stop=if(chats!=null && message.replyTo.isNotBlank())chats.observeMessage(message.chatId,message.replyTo){quote=it}else null;onDispose{stop?.invoke()}}
     var read by remember(message.id){mutableStateOf(false)}
-    var reactions by remember(message.id){mutableStateOf<Map<String,String>>(emptyMap())}
+    var reactions by remember(message.id){mutableStateOf<Map<String,List<String>>>(emptyMap())}
+    var reacting by remember(message.id){mutableStateOf(false)}
+    val winter= winterDesignEnabled()
+    fun toggleReaction(emoji:String){if(own || reacting || chats==null)return;reacting=true;chats.react(message,emoji,winter,onError){reacting=false}}
+
     DisposableEffect(chats,message.id,message.pending){val stop=if(chats!=null && own && !message.pending)chats.observeRead(message){read=it}else null;onDispose{stop?.invoke()}}
     DisposableEffect(chats,message.id,message.pending){val stop=if(chats!=null && !message.pending && !message.deleted)chats.observeReactions(message){reactions=it}else null;onDispose{stop?.invoke()}}
     val metadata:@Composable ()->Unit={Row(verticalAlignment=Alignment.CenterVertically){
@@ -213,8 +226,8 @@ import java.util.Locale
         if(own)Box(Modifier.width(24.dp),contentAlignment=Alignment.Center){Text(if(message.pending)"◷"else if(read)"✓✓"else"✓",style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)}
         if(!message.deleted)Box{
             IconButton({menu=true},Modifier.size(32.dp).semantics{contentDescription="Действия: сообщение"}){KotikiIcon(Glyph.SETTINGS,Modifier.size(14.dp).alpha(.55f))}
-            DropdownMenu(menu,{menu=false}){
-                if(!message.pending)Row(Modifier.padding(horizontal=8.dp)){listOf("💜","👍","🐾","😊").forEach{emoji->TextButton({menu=false;chats?.react(message,if(reactions[chats.session.uid]==emoji)null else emoji,onError)}){Text(emoji)}}}
+            DropdownMenu(menu,{menu=false},modifier=Modifier.width(192.dp)){
+                if(!own && !message.pending && chats!=null)ReactionPicker(reactions[chats.session.uid].orEmpty(),winter,reacting,::toggleReaction)
                 DropdownMenuItem({Text("Ответить")},{menu=false;onReply()},enabled=!message.pending)
                 DropdownMenuItem({Text("Копировать")},{menu=false;context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("Сообщение",richPlainText(message.text,message.format)))})
                 if(createTask!=null)DropdownMenuItem({Text("Создать задачу")},{menu=false;createTask(richPlainText(message.text,message.format)+"\n\nkotiki://chat/${message.chatId}/message/${message.id}")})
@@ -230,14 +243,27 @@ import java.util.Locale
             if(first)SelectableMessageText(message,Modifier.padding(vertical=5.dp))
             else InlineMessageMeta({SelectableMessageText(message,Modifier.padding(vertical=5.dp))},metadata)
             if(message.error.isNotEmpty())TextButton(onRetry){Text("Не отправлено · Повторить",color=colors.error)}
-            if(reactions.isNotEmpty())Row{reactions.entries.groupBy{it.value}.forEach{(emoji,people)->TextButton({chats?.react(message,if(people.any{it.key==chats.session.uid})null else emoji,onError)},contentPadding=PaddingValues(horizontal=5.dp,vertical=0.dp)){Text("$emoji ${people.size}")}}}
+
         }
     }
-    Row(Modifier.fillMaxWidth().padding(start=if(own)22.dp else 0.dp,end=if(own)0.dp else 22.dp),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start){
+    Row(Modifier.fillMaxWidth().padding(start=if(own)22.dp else 0.dp,end=if(own)0.dp else 22.dp).padding(bottom=14.dp),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start){
+        Box {
         Surface(Modifier.widthIn(max=350.dp).testTag("message-bubble-${message.id}"),shape=RoundedCornerShape(16.dp),color=if(winterDesignEnabled())androidx.compose.ui.graphics.Color(if(own)0xFFF1E6D3 else 0xFFD9ECE2).copy(alpha=.94f) else winterSurface(if(own)colors.primaryContainer else colors.secondaryContainer)){
             Box(Modifier.padding(horizontal=10.dp,vertical=3.dp)){
                 if(first)FirstMessageContent(senderName,message.role,metadata,body) else body()
             }
+        }
+        val visibleReactions=reactions.values.flatten().distinct().take(3)
+        if(visibleReactions.isNotEmpty())Row(Modifier.align(Alignment.BottomEnd).offset(x=(-10).dp,y=12.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+            visibleReactions.forEach { emoji ->
+                Surface(shape=CircleShape,color=colors.surface,border=androidx.compose.foundation.BorderStroke(1.dp,colors.primary.copy(alpha=if(own).25f else .65f))) {
+                    Box(Modifier.size(26.dp).then(if(!own)Modifier.clickable(enabled=!reacting){toggleReaction(emoji)} else Modifier)
+                        .semantics{contentDescription=if(own)"Реакция собеседника $emoji"else "Убрать реакцию $emoji"},contentAlignment=Alignment.Center) {
+                        Text(emoji,style=MaterialTheme.typography.bodySmall.copy(fontSize=14.sp,lineHeight=14.sp,platformStyle=PlatformTextStyle(includeFontPadding=false)))
+                    }
+                }
+            }
+        }
         }
     }
     if(confirming)AlertDialog(onDismissRequest={confirming=false},text={Text("Удалить сообщение у обоих участников?")},confirmButton={TextButton({confirming=false;onDelete()}){Text("Удалить")}},dismissButton={TextButton({confirming=false}){Text("Отмена")}})

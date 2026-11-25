@@ -49,6 +49,7 @@ import kotlin.math.*
         Column(Modifier.fillMaxSize().background(ComposeColor(0xFF101820)).safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){
                 Text("${pager.currentPage+1} / ${files.size}",Modifier.weight(1f),color=ComposeColor.White,style=MaterialTheme.typography.titleMedium)
+                AttachmentActions(files[pager.currentPage],store,ComposeColor.White)
                 IconButton(onDismiss,Modifier.semantics{contentDescription="Закрыть фотографию"}){KotikiIcon(Glyph.CLOSE,color=ComposeColor.White)}
             }
             HorizontalPager(pager,Modifier.weight(1f).clipToBounds(),userScrollEnabled=!zoomed,key={files[it].id}){page->
@@ -66,7 +67,14 @@ import kotlin.math.*
                 }
                 Box(Modifier.fillMaxSize().clipToBounds(),contentAlignment=Alignment.Center){
                     val original=local
-                    if(original!=null)AndroidView(factory={context->OriginalPhotoView(context,onZoom={active->if(page==pager.currentPage)zoomed=active},onFailure={error="Не удалось показать этот формат. Оригинал сохранён на телефоне.";local=null})},
+                    if(!item.mime.startsWith("image/"))Column(Modifier.padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                        Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_attachment_file),null,Modifier.size(64.dp),tint=ComposeColor.White)
+                        Text(item.name,color=ComposeColor.White)
+                        if(original!=null)Button({runCatching{store.open(item)}.onFailure{error="Нет приложения для этого формата"}}){Text("Открыть в другом приложении")}
+                        else if(error==null){CircularProgressIndicator(color=ComposeColor.White);Text("Загружаем оригинал…",color=ComposeColor.White)}
+                        error?.let{Text(it,color=ComposeColor.White);Button({retry++}){Text("Повторить")}}
+                    }
+                    else if(original!=null)AndroidView(factory={context->OriginalPhotoView(context,onZoom={active->if(page==pager.currentPage)zoomed=active},onFailure={error="Не удалось показать этот формат. Оригинал сохранён на телефоне.";local=null})},
                         update={it.open(original)},onReset=null,onRelease={it.release()},modifier=Modifier.fillMaxSize())
                     else Column(Modifier.padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
                         if(error==null){CircularProgressIndicator(progress={progress.coerceIn(0f,1f)},color=ComposeColor.White);Text("Загружаем оригинал · ${(progress*100).toInt()}%",color=ComposeColor.White)}
@@ -79,7 +87,7 @@ import kotlin.math.*
                 }
             }
             Text(files[pager.currentPage].name,Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),color=ComposeColor.White,style=MaterialTheme.typography.bodySmall,maxLines=2)
-            Text("Двойной тап — увеличить · щипок — масштаб",Modifier.padding(horizontal=16.dp,vertical=8.dp),color=ComposeColor.White.copy(alpha=.65f),style=MaterialTheme.typography.labelSmall)
+            if(files[pager.currentPage].mime.startsWith("image/"))Text("Двойной тап — увеличить · щипок — масштаб",Modifier.padding(horizontal=16.dp,vertical=8.dp),color=ComposeColor.White.copy(alpha=.65f),style=MaterialTheme.typography.labelSmall)
         }
     }
 }

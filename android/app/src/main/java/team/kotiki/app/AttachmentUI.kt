@@ -154,12 +154,12 @@ internal val LocalChatGallery=staticCompositionLocalOf<ChatGalleryState?>{null}
         try{
             val resolved=if(file.id in unresolved)resolve(file.id)else file
             if(resolved.mime.startsWith("image/")) {
-                val images=files.filter{it.mime.startsWith("image/")}
+                val images=files
                 val index=images.indexOfFirst{it.id==resolved.id}
                 if(galleryHost!=null)galleryHost.open(images,index,store,onResend={resend(it)})
                 else galleryIndex=index
             }
-            else {progress[file.id]=0f;store.download(resolved,onProgress={done,total->progress[file.id]=done.toFloat()/total});loaded++;store.open(resolved)}
+            else {val index=files.indexOfFirst{it.id==resolved.id};if(galleryHost!=null)galleryHost.open(files,index,store,onResend={resend(it)})else galleryIndex=index}
             errors.remove(file.id)
         }catch(e:CancellationException){throw e}catch(_:Exception){errors[file.id]="Не удалось открыть файл. Проверь соединение и повтори."}finally{progress.remove(file.id)}
     }}
@@ -193,7 +193,7 @@ internal val LocalChatGallery=staticCompositionLocalOf<ChatGalleryState?>{null}
             }
         }
     }
-    galleryIndex?.let{index->AttachmentGallery(files.filter{it.mime.startsWith("image/")},index,store,{galleryIndex=null},onResend={resend(it)})}
+    galleryIndex?.let{index->AttachmentGallery(files,index,store,{galleryIndex=null},onResend={resend(it)})}
 }
 
 @Composable fun AttachmentSettings(session:CloudSession) {

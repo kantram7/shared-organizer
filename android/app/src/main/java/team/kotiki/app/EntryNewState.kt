@@ -16,6 +16,11 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.unit.offset
 import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -59,9 +64,19 @@ internal fun Modifier.markNewEntry(entry:Entry):Modifier=composed {
     this.onGloballyPositioned{coordinates->val rect=coordinates.boundsInWindow();val root=coordinates.findRootCoordinates().boundsInWindow();val overlap=rect.intersect(root);visible=coordinates.isAttached && overlap.height>rect.height*.6f && overlap.width>rect.width*.6f}
         .drawWithContent{
             drawContent()
-            if(fresh){val inset=1.dp.toPx();drawRoundRect(color,Offset(inset,inset),Size(size.width-2*inset,size.height-2*inset),CornerRadius(12.dp.toPx()),style=Stroke(1.5.dp.toPx(),pathEffect=PathEffect.dashPathEffect(floatArrayOf(11.dp.toPx(),5.dp.toPx()))))
-                labelPaint.color=android.graphics.Color.argb(225,(color.red*255).toInt(),(color.green*255).toInt(),(color.blue*255).toInt());labelPaint.textSize=10.dp.toPx()
-                drawIntoCanvas{it.nativeCanvas.drawText("Новое",12.dp.toPx(),-3.dp.toPx(),labelPaint)}
+            if(fresh){
+                val inset=1.dp.toPx()
+                labelPaint.color=android.graphics.Color.argb(225,(color.red*255).toInt(),(color.green*255).toInt(),(color.blue*255).toInt());labelPaint.textSize=10.sp.toPx()
+                val metrics=labelPaint.fontMetrics;val labelHeight=metrics.descent-metrics.ascent
+                val top=labelHeight/2+inset;val x=12.dp.toPx();val width=labelPaint.measureText("Новое")
+                clipRect(x-4.dp.toPx(),0f,x+width+4.dp.toPx(),top+2.dp.toPx(),clipOp=ClipOp.Difference){
+                    drawRoundRect(color,Offset(inset,top),Size(size.width-2*inset,size.height-top-inset),CornerRadius(12.dp.toPx()),style=Stroke(1.5.dp.toPx(),pathEffect=PathEffect.dashPathEffect(floatArrayOf(11.dp.toPx(),5.dp.toPx()))))
+                }
+                drawIntoCanvas{it.nativeCanvas.drawText("Новое",x,top-(metrics.ascent+metrics.descent)/2,labelPaint)}
             }
+        }.layout { measurable,constraints ->
+            val extra=if(fresh)14.sp.roundToPx() else 0
+            val child=measurable.measure(constraints.offset(vertical=-extra))
+            layout(child.width,child.height+extra){child.placeRelative(0,extra)}
         }
 }

@@ -44,7 +44,14 @@ internal val WinterColors=lightColorScheme(
     primary=Color(0xFF2866A5),onPrimary=Color.White,primaryContainer=Color(0xFFCDE3F5),onPrimaryContainer=Color(0xFF214F78),
     background=Color(0xFFEDF5FC),onBackground=Color(0xFF203E58),surface=Color(0xFFF7FBFF),onSurface=Color(0xFF203E58),
     surfaceVariant=Color(0xFFDFEDF7),onSurfaceVariant=Color(0xFF405F78),outline=Color(0xFF8BA7BC),outlineVariant=Color(0xFFBED8EB),
-    secondary=Color(0xFF3D789B),secondaryContainer=Color(0xFFCFE6F7),onSecondaryContainer=Color(0xFF244B68),
+    secondary=Color(0xFF3D789B),onSecondary=Color.White,secondaryContainer=Color(0xFFCFE6F7),onSecondaryContainer=Color(0xFF244B68),
+    tertiary=Color(0xFF346E83),onTertiary=Color.White,tertiaryContainer=Color(0xFFD4EBF3),onTertiaryContainer=Color(0xFF203F4C),
+    // Material menus/dialogs use container roles rather than surfaceVariant.
+    // Set every elevation level so popups never inherit the default lavender palette.
+    surfaceTint=Color(0xFF2866A5),surfaceBright=Color(0xFFF7FBFF),surfaceDim=Color(0xFFD1E1ED),
+    surfaceContainerLowest=Color(0xFFFFFFFF),surfaceContainerLow=Color(0xFFF0F7FD),
+    surfaceContainer=Color(0xFFE7F1FA),surfaceContainerHigh=Color(0xFFDFEBF6),surfaceContainerHighest=Color(0xFFD6E5F1),
+    inverseSurface=Color(0xFF263F54),inverseOnSurface=Color(0xFFEAF4FC),inversePrimary=Color(0xFFA6CFF4),
 )
 
 @Composable fun WinterForest(modifier:Modifier=Modifier) {

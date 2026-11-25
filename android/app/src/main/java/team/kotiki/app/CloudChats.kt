@@ -222,14 +222,19 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
             .addSnapshotListener{d,_->onRead(d?.exists()==true)}
         return {registration.remove()}
     }
-    fun react(message:ChatMessage,emoji:String?,failed:(String)->Unit){
+    fun react(message:ChatMessage,emoji:String,winter:Boolean,failed:(String)->Unit,finished:()->Unit={}){
+        if(message.sender==session.uid || message.pending || message.deleted){failed("Реакции доступны только на чужие отправленные сообщения");finished();return}
         val ref=root.document(message.chatId).collection("messages").document(message.id).collection("reactions").document(session.uid)
-        val task=if(emoji==null)ref.delete()else ref.set(mapOf("emoji" to emoji,"updatedAt" to FieldValue.serverTimestamp(),"actor" to session.authUid))
-        task.addOnFailureListener{failed(messageFor(it))}
+        FirebaseFirestore.getInstance().runTransaction { transaction ->
+            val current=ReactionChoices.decode(transaction.get(ref).data)
+            val next=ReactionChoices.toggle(current,emoji,winter)
+            if(next.isEmpty())transaction.delete(ref)
+            else transaction.set(ref,mapOf("emoji" to next.first(),"emojis" to next,"updatedAt" to FieldValue.serverTimestamp(),"actor" to session.authUid))
+        }.addOnFailureListener{failed(it.cause?.message?.takeIf{m->m.contains("трёх") || m.contains("зимней")}?:messageFor(it))}.addOnCompleteListener{finished()}
     }
-    fun observeReactions(message:ChatMessage,onReactions:(Map<String,String>)->Unit):()->Unit {
+    fun observeReactions(message:ChatMessage,onReactions:(Map<String,List<String>>)->Unit):()->Unit {
         val registration=root.document(message.chatId).collection("messages").document(message.id).collection("reactions")
-            .addSnapshotListener{d,_->onReactions(d?.documents?.mapNotNull{doc->doc.getString("emoji")?.let{doc.id to it}}?.toMap() ?: emptyMap())}
+            .addSnapshotListener{d,_->onReactions(d?.documents?.filter{it.id!=message.sender}?.associate{it.id to ReactionChoices.decode(it.data)} ?: emptyMap())}
         return {registration.remove()}
     }
     fun search(target:ChatTarget,text:String,onResult:(List<ChatMessage>,String?)->Unit){

@@ -26,7 +26,7 @@ android {
         applicationId = "team.kotiki.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 21
+        versionCode = 24
         versionName = "0.3.6"
         buildConfigField("boolean", "AGENT_TEST", "false")
         buildConfigField("boolean", "WINTER_PREVIEW", "false")

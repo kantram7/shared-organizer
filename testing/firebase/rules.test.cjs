@@ -519,3 +519,20 @@ test('proposal permits the entry description limit and rejects oversized text',a
  await assertFails(write(b,'long-description',envelope({...accepted,proposal:proposal('too-long','USER_2',{note:'n'.repeat(10001)})},'user-two')));
  await assertSucceeds(write(b,'long-description',envelope({...accepted,proposal:proposal('long-enough','USER_2',{note:'n'.repeat(10000)})},'user-two')));
 });
+
+test('fix22 reactions reject own messages and cap unique selections at three',async()=>{
+ const a=db('user-one'),b=db('user-two');await chat(a);await setDoc(msgRef(a),message());
+ const ref=(c,id)=>doc(c,root+'/chats/general/messages/m1/reactions/'+id);
+ const payload=(emojis,actor='user-two')=>({emoji:emojis[0],emojis,updatedAt:serverTimestamp(),actor});
+ await assertFails(setDoc(ref(a,'user-one'),payload(['💜'],'user-one')));
+ await assertSucceeds(setDoc(ref(b,'user-two'),payload(['💜','🐾','👍'])));
+ await assertFails(setDoc(ref(b,'user-two'),payload(['💜','🐾','👍','😊'])));
+ await assertFails(setDoc(ref(b,'user-two'),payload(['💜','💜'])));
+ await assertFails(setDoc(ref(b,'user-two'),payload(['😻'])));
+ await assertSucceeds(setDoc(ref(b,'user-two'),payload(['❤️','❄️','🥶'])));
+ await assertSucceeds(setDoc(ref(b,'user-two'),payload(['❤️','👀'])));
+ await assertFails(deleteDoc(ref(a,'user-two')));
+ await assertSucceeds(deleteDoc(ref(b,'user-two')));
+ // Older clients' single emoji payload remains compatible for incoming messages.
+ await assertSucceeds(setDoc(ref(b,'user-two'),{emoji:'👌',updatedAt:serverTimestamp(),actor:'user-two'}));
+});
