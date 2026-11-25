@@ -1,3 +1,8 @@
+# Public repository scope
+
+- This repository contains the anonymized application foundation and public setup/release documentation.
+- Keep future plans, internal fix backlogs, design discussions, and their archives only in the private working repository app-kotiki-team. Do not reintroduce them here when transferring code changes.
+
 # Local context and public files
 
 - If `private/PERSONAL-CONTEXT.txt` exists, read it for local project context. It is optional and must remain untracked.
