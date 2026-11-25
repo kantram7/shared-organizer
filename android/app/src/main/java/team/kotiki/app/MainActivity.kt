@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         notificationTarget=GatheringNotifications.target(intent)
+        SharedContentInbox.capture(this,intent)
     }
     override fun onDestroy() {
         if(isFinishing)AppLockSessions.clear()
@@ -24,6 +25,8 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SharedContentInbox.restore(this)
+        if(savedInstanceState==null)SharedContentInbox.capture(this,intent)
         if(savedInstanceState==null)notificationTarget=GatheringNotifications.target(intent)
         if (BuildConfig.AGENT_TEST && com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
             val config=assets.open("agent-firebase.json").bufferedReader().use { org.json.JSONObject(it.readText()) }
@@ -45,7 +48,7 @@ class MainActivity : ComponentActivity() {
                 onDispose{lifecycle.removeObserver(observer)}
             }
 
-            KotikiTheme("light") {
+            KotikiTheme(rememberAppTheme()) {
                 BrandWelcome(welcome,{welcome=false}) {
                     CloudGate(notificationTarget){notificationTarget=null}
                 }

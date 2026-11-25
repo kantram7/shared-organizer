@@ -27,11 +27,14 @@ internal fun initialEntryTimed(entry:Entry,isNew:Boolean)=entry.start.isNotEmpty
 @Composable fun EntryEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,onDelete:(()->Unit)?=null,onHistory:(()->Unit)?=null,calendarActions:(@Composable ()->Unit)?=null,isNew:Boolean=false,reminderAccount:String?=null) {
     if(original.isGathering){GatheringEditor(original,onDismiss,onSave,calendarActions,reminderAccount);return}
     val context=LocalContext.current
+    val pickerContext=rememberPickerContext()
     val viewer=LocalDemoIdentity.current.viewer
     val reminder=rememberEntryReminderDraft(reminderAccount,original.id)
     val cloud=LocalCloudMode.current
     var title by rememberSaveable(original.id) { mutableStateOf(original.title) }
     var note by rememberSaveable(original.id) { mutableStateOf(original.note) }
+    var titleFormat by rememberSaveable(original.id){mutableStateOf(original.titleFormat)}
+    var descriptionFormat by rememberSaveable(original.id){mutableStateOf(original.descriptionFormat)}
     var kind by rememberSaveable(original.id) { mutableStateOf(original.kind) }
     var date by rememberSaveable(original.id) { mutableStateOf(original.date) }
     var last by rememberSaveable(original.id) { mutableStateOf(original.lastDate ?: original.date) }
@@ -47,18 +50,18 @@ internal fun initialEntryTimed(entry:Entry,isNew:Boolean)=entry.start.isNotEmpty
     val titleTarget=remember {BringIntoViewRequester()}
     val dateTarget=remember {BringIntoViewRequester()}
     LaunchedEffect(title,date,last,timed,start,end,kind) {error=""}
-    val calendarDraft=original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=if(kind==Kind.TASK)date else last ?: date,
+    val calendarDraft=original.copy(title=title.trim(),note=note.trim(),titleFormat=titleFormat,descriptionFormat=descriptionFormat,kind=kind,date=date,lastDate=if(kind==Kind.TASK)date else last ?: date,
         week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
         who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,
         visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable)
 
     fun pickDate(current:LocalDate?,onPick:(LocalDate)->Unit) {
         val day=current ?: LocalDate.now()
-        DatePickerDialog(context,{_,y,m,d->onPick(LocalDate.of(y,m+1,d))},day.year,day.monthValue-1,day.dayOfMonth).show()
+        DatePickerDialog(pickerContext,{_,y,m,d->onPick(LocalDate.of(y,m+1,d))},day.year,day.monthValue-1,day.dayOfMonth).show()
     }
     fun pickTime(current:String,onPick:(String)->Unit) {
         val time=LocalTime.parse(current)
-        TimePickerDialog(context,{_,h,m->onPick("%02d:%02d".format(h,m))},time.hour,time.minute,true).show()
+        TimePickerDialog(pickerContext,{_,h,m->onPick("%02d:%02d".format(h,m))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge) {
@@ -70,9 +73,8 @@ internal fun initialEntryTimed(entry:Entry,isNew:Boolean)=entry.start.isNotEmpty
                     IconButton(onClick=onDismiss,modifier=Modifier.semantics{contentDescription="Закрыть редактирование"}){KotikiIcon(Glyph.CLOSE)}
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth().bringIntoViewRequester(titleTarget),label={Text("Название")},singleLine=true,
-                    isError=error=="Укажи название",supportingText={if(error=="Укажи название")Text(error)})
-                OutlinedTextField(note,{note=it.take(300)},Modifier.fillMaxWidth(),label={Text("Комментарий")},minLines=2)
+                RichTextEditor(title,{title=it;titleFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=titleFormat,label="Название",titleOnly=true,minLines=1,maxLength=100,sourceLink=if(isNew)null else sourceDeepLink("entry",original.id))
+                RichTextEditor(note,{note=it;descriptionFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=descriptionFormat,label="Комментарий",minLines=2,maxLength=10000,sourceLink=if(isNew)null else sourceDeepLink("entry",original.id))
                 EditorLinks(title+"\n"+note)
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     FilterChip(kind==Kind.EVENT,{if(isNew && kind!=Kind.EVENT)timed=true;kind=Kind.EVENT;if(date==null)date=LocalDate.now()},label={Text("Событие")})
@@ -122,7 +124,7 @@ internal fun initialEntryTimed(entry:Entry,isNew:Boolean)=entry.start.isNotEmpty
                         else->""
                     }
                     if(error.isNotEmpty())scope.launch {if(error=="Укажи название")titleTarget.bringIntoView() else dateTarget.bringIntoView()}
-                    if(error.isEmpty()) { val result=original.copy(title=title.trim(),note=note.trim(),kind=kind,date=date,lastDate=finalLast,
+                    if(error.isEmpty()) { val result=original.copy(title=title.trim(),note=note.trim(),titleFormat=titleFormat,descriptionFormat=descriptionFormat,kind=kind,date=date,lastDate=finalLast,
                         week=date?.let(::mondayOf) ?: original.week,start=if(timed && date!=null)start else "",end=if(timed && date!=null)end else "",
                         who=if(cloud && original.invite!=InviteState.NONE)Person.BOTH else if(shared)who else viewer,visibility=if(!isNew)original.visibility else if(shared)Visibility.SHARED else if(busy)Visibility.BUSY else Visibility.PRIVATE,editable=shared && editable)
                         if((result.who!=viewer && result.who!=Person.BOTH) || reminder.save(context,reminderAccount,result)){onSave(result);if(reminderAccount!=null)LocalReminders.reschedulePersisted(context)}

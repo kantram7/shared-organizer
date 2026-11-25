@@ -26,8 +26,8 @@ android {
         applicationId = "team.kotiki.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.3.5"
+        versionCode = 21
+        versionName = "0.3.6"
         buildConfigField("boolean", "AGENT_TEST", "false")
         buildConfigField("boolean", "WINTER_PREVIEW", "false")
         resValue("string", "app_name", "Kotiki team")
@@ -41,7 +41,7 @@ android {
     }
     if (agentTest) sourceSets.getByName("debug").assets.srcDir(agentAssets!!)
     // Optional local aliases for updating installations from private prototypes.
-    providers.environmentVariable("KOTIKI_MIGRATION_ASSETS")?.orNull?.let {
+    if (!agentTest) providers.environmentVariable("KOTIKI_MIGRATION_ASSETS")?.orNull?.let {
         sourceSets.getByName("main").assets.srcDir(it)
     }
     if (winterPreview) {
@@ -106,6 +106,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-config")
+    implementation("com.google.firebase:firebase-functions")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))

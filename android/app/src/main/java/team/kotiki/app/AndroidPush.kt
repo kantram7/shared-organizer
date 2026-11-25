@@ -90,7 +90,8 @@ object AndroidPush {
         val p=prefs(context);val auth=p.getString("authUid",null) ?: return null
         return runCatching{PushBinding(auth,p.getString("canonicalUid",null)!!,p.getString("spaceId",null)!!,Person.valueOf(p.getString("viewer",null)!!))}.getOrNull()
     }
-    internal fun active(context:Context,profile:PushBinding):Boolean = ensureFirebase(context) &&
+    internal fun active(context:Context,profile:PushBinding):Boolean =
+        (!BuildConfig.AGENT_TEST || profile.authUid==profile.canonicalUid) && ensureFirebase(context) &&
         FirebaseAuth.getInstance().currentUser?.uid==profile.authUid && binding(context)==profile
     fun register(context:Context,session:CloudSession){
         val app=context.applicationContext
@@ -113,24 +114,27 @@ object AndroidPush {
             .set(mapOf("authUid" to profile.authUid,"canonicalUid" to profile.canonicalUid,"token" to token,"updatedAt" to FieldValue.serverTimestamp()))
             .addOnCompleteListener{task->if(active(context,profile))registrationStatus=if(task.isSuccessful)"Устройство зарегистрировано для push" else "Не удалось зарегистрировать устройство для push"}
     }
-    /** Remove the server device before signOut. Offline removal remains pending; errors reach the logout UI. */
-    fun unregister(context:Context,session:CloudSession,onComplete:(Boolean)->Unit){
-        val app=context.applicationContext;val profile=binding(app)
-        if(profile==null || profile.authUid!=session.authUid || !ensureFirebase(app)){onComplete(true);return}
+    /** Local revocation must not depend on network access or permission to delete a device. */
+    @Synchronized internal fun clearLocal(context:Context,authUid:String) {
+        val app=context.applicationContext
+        if(binding(app)?.authUid==authUid) {
+            prefs(app).edit().remove("authUid").remove("canonicalUid").remove("spaceId").remove("viewer").commit()
+            app.getSystemService(JobScheduler::class.java).cancel(JOB_SYNC)
+            registrationStatus="Устройство не зарегистрировано для push"
+        }
+        LocalReminders.clearProfile(app,authUid)
+        val manager=app.getSystemService(NotificationManager::class.java)
+        manager.activeNotifications.filter{
+            it.tag?.startsWith("push-$authUid-")==true || it.notification.extras.getString("kotiki_notice_uid")==authUid
+        }.forEach{manager.cancel(it.tag,it.id)}
+    }
+    /** The caller captures the device before clearing its binding; remote removal is best effort. */
+    internal fun unregister(context:Context,authUid:String,profile:PushBinding?,onComplete:(Boolean)->Unit) {
+        val app=context.applicationContext
+        if(profile==null || profile.authUid!=authUid || !ensureFirebase(app)){onComplete(true);return}
         val id=profile.authUid+"_"+installation(app)
         FirebaseFirestore.getInstance().collection("spaces").document(profile.spaceId).collection("devices").document(id).delete()
-            .addOnCompleteListener{result->
-                if(result.isSuccessful){
-                    registrationStatus="Устройство не зарегистрировано для push"
-                    if(binding(app)==profile)prefs(app).edit().remove("authUid").remove("canonicalUid").remove("spaceId").remove("viewer").apply()
-                    app.getSystemService(JobScheduler::class.java).cancel(JOB_SYNC)
-                    val manager=app.getSystemService(NotificationManager::class.java)
-                    manager.activeNotifications.filter{it.tag?.startsWith("push-${profile.authUid}-")==true}.forEach{manager.cancel(it.tag,it.id)}
-                    LocalReminders.clearProfile(app,profile.authUid)
-                    if(FirebaseAuth.getInstance().currentUser?.uid==profile.authUid)FirebaseMessaging.getInstance().deleteToken()
-                }
-                onComplete(result.isSuccessful)
-            }
+            .addOnCompleteListener{onComplete(it.isSuccessful)}
     }
     /** Reserved call site: the Worker polls pushQueue on its cron schedule. No network request is made. */
     @Suppress("UNUSED_PARAMETER") fun wake(context:Context) = Unit
@@ -151,7 +155,7 @@ object AndroidPush {
                 .collection("records").whereArrayContains("readers",profile.canonicalUid).get(Source.SERVER),25,TimeUnit.SECONDS)
             val entries=snapshot.documents.filter{it.getString("type")=="entry" && it.getBoolean("deleted")!=true}
                 .map{document->readEntry(JSONObject(document.get("data") as Map<*,*>),emptyMap())}
-            if(active(context,profile))LocalReminders.sync(context,profile.authUid,entries,profile.viewer)
+            if(active(context,profile))LocalReminders.sync(context,profile.authUid,entries,profile.viewer,profile)
             true
         }catch(_:Exception){!active(context,profile)}
     }
@@ -168,7 +172,9 @@ object AndroidPush {
         if(notice.recordId.isNotEmpty())refreshReminders(context)
         if(notice.kind=="refresh")return
         val route=if(notice.kind=="chat")NotificationReadState.chat(notice.chatId) else NotificationReadState.entry(notice.recordId.removePrefix("entry_"))
-        if(!NotificationReadState.shouldPost(context,notice.authUid,route,data["createdAt"]))return
+        if(notice.kind=="chat") {
+            if(NotificationReadState.messageRead(context,notice.authUid,notice.chatId,data["messageId"].orEmpty()))return
+        } else if(!NotificationReadState.shouldPost(context,notice.authUid,route,data["createdAt"]))return
         val seen=runCatching{JSONArray(prefs(context).getString("seen","[]"))}.getOrDefault(JSONArray())
         val key=notice.authUid+":"+notice.eventId
         if((0 until seen.length()).any{seen.optString(it)==key})return
@@ -191,7 +197,7 @@ object AndroidPush {
             .setContentTitle("Kotiki team").setContentText("Есть обновления. Открой приложение.").build()
         val notification=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_notification_paw)
             .setContentTitle(title).setContentText(body).setContentIntent(pending).setAutoCancel(true)
-            .setNumber(1).setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL).addExtras(NotificationReadState.extras(notice.authUid,route))
+            .setNumber(1).setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL).addExtras(NotificationReadState.extras(notice.authUid,route).apply{putString("kotiki_message_id",data["messageId"])})
             .setCategory(if(notice.kind=="chat")NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_EVENT)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
         if(!active(context,profile))return

@@ -1,6 +1,11 @@
 package team.kotiki.app
 
 import android.content.Context
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animate
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -72,6 +77,9 @@ internal val LocalReorderViewport=staticCompositionLocalOf<ReorderViewport?>{nul
     var offset by remember(scope){mutableFloatStateOf(0f)}
     var startTop by remember(scope){mutableFloatStateOf(0f)}
     var columnBounds by remember(scope){mutableStateOf<Rect?>(null)}
+    val motionScope=rememberCoroutineScope()
+    var settling by remember(scope){mutableStateOf(false)}
+    var dropJob by remember(scope){mutableStateOf<Job?>(null)}
     val viewport=LocalReorderViewport.current
     val context=androidx.compose.ui.platform.LocalContext.current
     fun updateTarget() {
@@ -80,12 +88,21 @@ internal val LocalReorderViewport=staticCompositionLocalOf<ReorderViewport?>{nul
     }
     fun finish() {
         val from=dragging;val to=target
-        if(from!=null && to!=null && from!=to && !store.move(scope,currentAll,from,to))
-            android.widget.Toast.makeText(context,"Не удалось сохранить порядок",android.widget.Toast.LENGTH_SHORT).show()
-        dragging=null;target=null;offset=0f
+        if(from==null || to==null){dragging=null;target=null;offset=0f;return}
+        settling=true
+        dropJob=motionScope.launch {
+            val source=bounds[from];val destination=bounds[to]
+            if(source!=null && destination!=null){
+                val targetTop=if(destination.top>source.top)destination.bottom-source.height else destination.top
+                animate(offset,targetTop-startTop,animationSpec=tween(150)){value,_->offset=value}
+            }
+            if(from!=to && !store.move(scope,currentAll,from,to))
+                android.widget.Toast.makeText(context,"Не удалось сохранить порядок",android.widget.Toast.LENGTH_SHORT).show()
+            dragging=null;target=null;offset=0f;settling=false
+        }
     }
     LaunchedEffect(dragging) {
-        while(dragging!=null) {
+        while(dragging!=null && !settling) {
             delay(16)
             val view=viewport?.bounds();val column=columnBounds
             if(view!=null && column!=null) {
@@ -104,12 +121,21 @@ internal val LocalReorderViewport=staticCompositionLocalOf<ReorderViewport?>{nul
         ordered.forEachIndexed{index,item->val itemId=id(item);key(itemId) {
             val active=dragging==itemId
             var baseTop by remember{mutableFloatStateOf(0f)}
-            val frame=if(target==itemId && !active && dragging!=null)Modifier.border(2.dp,MaterialTheme.colorScheme.primary) else Modifier
+            val fromIndex=ordered.indexOfFirst{id(it)==dragging}
+            val targetIndex=ordered.indexOfFirst{id(it)==target}
+            val draggedHeight=bounds[dragging]?.height?:0f
+            val neighborTarget=when {
+                active || fromIndex<0 || targetIndex<0->0f
+                fromIndex<targetIndex && index in (fromIndex+1)..targetIndex -> -draggedHeight
+                targetIndex<fromIndex && index in targetIndex until fromIndex -> draggedHeight
+                else->0f
+            }
+            val neighborOffset by key(dragging){animateFloatAsState(neighborTarget,tween(160),label="Reorder gap")}
             Box(Modifier.fillMaxWidth().onGloballyPositioned{val r=Rect(it.positionInWindow(),Size(it.size.width.toFloat(),it.size.height.toFloat()));bounds[itemId]=r;baseTop=r.top}
                 .zIndex(if(active)1f else 0f)
                 .then(if(enabled && ordered.size>1)Modifier.pointerInput(scope,itemId) {
                     detectDragGesturesAfterLongPress(
-                        onDragStart={p->dragging=itemId;target=itemId;startTop=baseTop;pointerY=baseTop+p.y;offset=0f},
+                        onDragStart={p->dropJob?.cancel();settling=false;dragging=itemId;target=itemId;startTop=baseTop;pointerY=baseTop+p.y;offset=0f},
                         onDragCancel={dragging=null;target=null;offset=0f},onDragEnd={finish()},
                         onDrag={change,amount->change.consume();offset+=amount.y;pointerY+=amount.y;updateTarget()})
                 }.semantics {customActions=listOfNotNull(
@@ -120,7 +146,7 @@ internal val LocalReorderViewport=staticCompositionLocalOf<ReorderViewport?>{nul
                     val area=columnBounds;val height=bounds[itemId]?.height?:0f
                     val top=if(area==null)startTop+offset else (startTop+offset).coerceIn(area.top,(area.bottom-height).coerceAtLeast(area.top))
                     top-baseTop
-                }else 0f;alpha=if(active).85f else 1f}.then(frame)){Column{content(item)}}
+                }else neighborOffset;alpha=if(active).94f else 1f;shadowElevation=if(active)8.dp.toPx()else 0f}){Column{content(item)}}
             }
         }}
     }

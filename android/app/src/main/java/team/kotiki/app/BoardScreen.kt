@@ -1,5 +1,10 @@
 package team.kotiki.app
 
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import java.time.temporal.ChronoUnit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -35,6 +41,9 @@ import java.time.LocalDate
     var weekString by rememberSaveable { mutableStateOf(mondayOf(today).toString()) }
     var filter by rememberSaveable { mutableStateOf(OwnerFilter.ALL) }
     val week=LocalDate.parse(weekString)
+    val weekEpoch=LocalDate.of(1900,1,1)
+    val weekPager=rememberPagerState(initialPage=ChronoUnit.WEEKS.between(weekEpoch,week).toInt(),pageCount={10436})
+    val pagerScope=rememberCoroutineScope()
     val dates=(0..6).map { week.plusDays(it.toLong()) }
     val strip=rememberLazyListState(if(week==mondayOf(today))today.dayOfWeek.value-1 else 0)
     var pendingDay by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -42,13 +51,22 @@ import java.time.LocalDate
     var pendingOverviewDay by rememberSaveable {mutableStateOf<Int?>(null)}
     val daysScroll=rememberScrollState()
     val overview=store.boardOverview
+    LaunchedEffect(overview) {
+        if(overview) {
+            // The saved week is authoritative when returning from another screen or Days mode.
+            // A hidden pager has no layout and may still hold its last previously shown page.
+            weekPager.scrollToPage(ChronoUnit.WEEKS.between(weekEpoch,LocalDate.parse(weekString)).toInt().coerceIn(0,weekPager.pageCount-1))
+            snapshotFlow { weekPager.settledPage }.collect { page ->
+                weekString=weekEpoch.plusWeeks(page.toLong()).toString()
+            }
+        }
+    }
+    val newState=LocalEntryNewState.current
+    LaunchedEffect(weekString,filter,overview){newState?.refresh()}
     LaunchedEffect(overview,pendingDay) {
         if(!overview && pendingDay!=null) { strip.scrollToItem(pendingDay!!); daysScroll.scrollTo(0); pendingDay=null }
     }
-    LaunchedEffect(overview,pendingOverviewDay) {
-        if(overview && pendingOverviewDay!=null){overviewList.scrollToItem(pendingOverviewDay!!);pendingOverviewDay=null}
-    }
-    fun changeWeek(day:LocalDate) {weekString=day.toString();pendingDay=if(day==mondayOf(today))today.dayOfWeek.value-1 else 0;pendingOverviewDay=pendingDay}
+    fun changeWeek(day:LocalDate) {if(overview)pagerScope.launch{weekPager.animateScrollToPage(ChronoUnit.WEEKS.between(weekEpoch,day).toInt().coerceIn(0,weekPager.pageCount-1))};weekString=day.toString();pendingDay=if(day==mondayOf(today))today.dayOfWeek.value-1 else 0;pendingOverviewDay=pendingDay}
     fun add(day:LocalDate?)=onAdd(Entry(newId(),"",day,week,kind=if(day==null)Kind.TASK else Kind.EVENT,owner=store.viewer))
     val records=visibleEntries(store.entries,filter,store.viewer)
     var viewport by remember{mutableStateOf<Rect?>(null)}
@@ -56,21 +74,29 @@ import java.time.LocalDate
     CompositionLocalProvider(LocalReorderViewport provides scrolling) {
     Column(Modifier.fillMaxSize()) {
         ScreenHeading("Наша неделя","+ Добавить",{add(if(overview) { if(today in dates)today else week } else dates[strip.firstVisibleItemIndex.coerceIn(0,6)])})
-        WinterBanner()
         ParticipantFilter(filter){filter=it}
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             FilterChip(overview,{store.updateBoardOverview(true)},label={Text("Обзор недели")})
             FilterChip(!overview,{store.updateBoardOverview(false)},label={Text("Дни")})
         }
+        Surface(color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=if(winterDesignEnabled()).82f else .55f),shape=RoundedCornerShape(10.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             IconButton({changeWeek(week.minusWeeks(1))},Modifier.semantics{contentDescription="Предыдущая неделя"}){KotikiIcon(Glyph.LEFT)}
             Text("Неделя ${dateLabel(week)} — ${dateLabel(week.plusDays(6))}",Modifier.weight(1f),fontSize=14.sp)
             IconButton({changeWeek(week.plusWeeks(1))},Modifier.semantics{contentDescription="Следующая неделя"}){KotikiIcon(Glyph.RIGHT)}
         }
+        }
+        HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.65f))
         if(week!=mondayOf(today))TextButton({changeWeek(mondayOf(today))}){Text("Эта неделя")}
         if(overview) {
-            LazyColumn(state=overviewList,modifier=Modifier.weight(1f).onGloballyPositioned{viewport=it.boundsInWindow()},verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(top=8.dp,bottom=24.dp)) {
-            itemsIndexed(dates,key={_,day->day.toString()}) {index,day->
+            HorizontalPager(weekPager,Modifier.weight(1f).clipToBounds(),key={it}){page->
+            val pageWeek=weekEpoch.plusWeeks(page.toLong())
+            val pageDates=(0..6).map{pageWeek.plusDays(it.toLong())}
+            val pageList=rememberLazyListState(if(pageWeek==mondayOf(today))today.dayOfWeek.value-1 else 0)
+            LaunchedEffect(pendingOverviewDay,page==weekPager.currentPage){if(page==weekPager.currentPage && pendingOverviewDay!=null){pageList.scrollToItem(pendingOverviewDay!!);pendingOverviewDay=null}}
+            CompositionLocalProvider(LocalReorderViewport provides ReorderViewport({viewport}){pageList.scrollBy(it)}) {
+            LazyColumn(state=pageList,modifier=Modifier.fillMaxSize().onGloballyPositioned{if(page==weekPager.currentPage)viewport=it.boundsInWindow()},verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(top=8.dp,bottom=24.dp)) {
+            itemsIndexed(pageDates,key={_,day->day.toString()}) {index,day->
             Surface(shape=RoundedCornerShape(16.dp),color=layeredSurface(.65f),
                 border=BorderStroke(if(day==today)2.dp else 1.dp,MaterialTheme.colorScheme.primary.copy(alpha=if(day==today).8f else .32f))) {
             Column(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=4.dp)) {
@@ -84,10 +110,12 @@ import java.time.LocalDate
                 CompletedGroup(store,entries.filter{it.done},"day/$day",onOpen,onHelp,compact=true)
             } }
             }
-            item(key="undated"){UndatedBoardGroup(store,records,week,onOpen,onHelp,::add,true)}
+            item(key="undated"){UndatedBoardGroup(store,records,pageWeek,onOpen,onHelp,{day->onAdd(Entry(newId(),"",day,pageWeek,kind=if(day==null)Kind.TASK else Kind.EVENT,owner=store.viewer))},true)}
+            }
+            }
             }
         } else {
-            Column(Modifier.weight(1f).onGloballyPositioned{viewport=it.boundsInWindow()}.verticalScroll(daysScroll)) {
+            Column(Modifier.weight(1f).clipToBounds().onGloballyPositioned{viewport=it.boundsInWindow()}.verticalScroll(daysScroll)) {
             val visibleCount by remember {derivedStateOf {strip.layoutInfo.visibleItemsInfo.size}}
             val progress=strip.firstVisibleItemIndex/7f
             val visible=(visibleCount.coerceAtLeast(1)/7f).coerceAtMost(1f-progress)
@@ -133,7 +161,7 @@ import java.time.LocalDate
 }
 @Composable internal fun OverviewRecord(entry:Entry,onOpen:(Entry)->Unit,onDone:(Entry)->Unit,onHelp:(String)->Unit,onAccept:(Entry)->Unit,iceSpace:androidx.compose.ui.unit.Dp=0.dp) {
     val actions=rememberItemMenu()
-    Surface(Modifier.fillMaxWidth().winterIcicles(entry.id,iceSpace).clickable{onOpen(entry)},
+    Surface(Modifier.fillMaxWidth().markNewEntry(entry).winterIcicles(entry.id,iceSpace).clickable{onOpen(entry)},
         shape=RoundedCornerShape(10.dp),color=if(entry.isGathering)gatheringTint() else participantTint(entry.who,entry.isDayTask)) {
         Column {
         Row(Modifier.alpha(if(entry.isTentative).65f else if(entry.done).55f else 1f).padding(horizontal=4.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -145,7 +173,7 @@ import java.time.LocalDate
                     else->"Весь день"
                 },style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                    LinkText(entry.title,Modifier.weight(1f),fontSize=13.sp,textDecoration=if(entry.done)TextDecoration.LineThrough else null)
+                    LinkText(entry.title,format=entry.titleFormat,modifier=Modifier.weight(1f),fontSize=13.sp,textDecoration=if(entry.done)TextDecoration.LineThrough else null)
                     if(entry.visibility==Visibility.SHARED)ChatCountBadge(LocalEntryChatReads.current?.count(entry.id) ?: 0)
                 }
                 if(entry.isGathering)GatheringLabel()
@@ -163,7 +191,8 @@ import java.time.LocalDate
     var expanded by rememberSaveable {mutableStateOf(false)}
     if(entries.isNotEmpty() || !compact) {
         TextButton({expanded=!expanded},enabled=entries.isNotEmpty(),contentPadding=PaddingValues(0.dp)) {
-            Text("Выполнено · ${entries.size}${if(entries.isEmpty())"" else if(expanded)" ▴" else " ▾"}",style=MaterialTheme.typography.labelSmall)
+            Text("Выполнено · ${entries.size}",style=MaterialTheme.typography.labelSmall)
+            if(entries.isNotEmpty()){Spacer(Modifier.width(4.dp));DisclosureIcon(expanded)}
         }
         if(expanded)BoardRecords(store,entries,scope+"/done",onOpen,onHelp,compact)
     }
@@ -176,12 +205,17 @@ import java.time.LocalDate
         else scope.removePrefix("day/").removeSuffix("/done").let{runCatching{e.occursOn(LocalDate.parse(it))}.getOrDefault(false)}}.map{it.id}
     val timed=entries.filter{it.start.isNotBlank()}.sortedBy{it.start}
     val lastId=(timed.lastOrNull() ?: store.manualOrder.sorted(scope,untimed,{it.id}).lastOrNull())?.id
+    val cardGap=if(compact)5.dp else 6.dp
     @Composable fun card(entry:Entry) {
-        val iceSpace=if(entry.id==lastId)if(compact)5.dp else 8.dp else 0.dp
+        val iceSpace=if(entry.id==lastId)cardGap else 0.dp
         if(compact)OverviewRecord(entry,onOpen,store::toggleDone,onHelp,store::acceptInvitation,iceSpace)
-        else RecordCard(entry,onOpen,store::toggleDone,onHelp,store::acceptInvitation,iceSpace=iceSpace)
-        Spacer(Modifier.height(if(compact)5.dp else 8.dp))
+        else RecordCard(entry,onOpen,store::toggleDone,onHelp,store::acceptInvitation,compact=true,iceSpace=iceSpace)
+        if(entry.id!=lastId)Spacer(Modifier.height(cardGap))
     }
-    ReorderColumn(store.manualOrder,scope,untimed,{it.id},allIds=all){card(it)}
-    timed.forEach{key(it.id){card(it)}}
+    // Keep cards and their gaps in one layout: the day's spacedBy must not add
+    // another gap around every timed card and its spacer.
+    if(entries.isNotEmpty())Column(Modifier.fillMaxWidth()) {
+        ReorderColumn(store.manualOrder,scope,untimed,{it.id},allIds=all){card(it)}
+        timed.forEach{key(it.id){card(it)}}
+    }
 }

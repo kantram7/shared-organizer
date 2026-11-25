@@ -1,0 +1,10 @@
+{
+  "name": "shared-organizer-functions",
+  "version": "0.3.6",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "engines": {"node": "22"},
+  "scripts": {"check": "node --check index.mjs && node --check core.mjs", "test": "node --test ../../testing/firebase/functions.test.mjs"},
+  "dependencies": {"firebase-admin": "14.5.1", "firebase-functions": "7.4.0"}
+}

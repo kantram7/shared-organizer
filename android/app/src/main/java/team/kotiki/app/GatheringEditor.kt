@@ -22,9 +22,12 @@ import java.time.LocalTime
 /** A gathering is always a timed, shared invitation for both participants. */
 @Composable fun GatheringEditor(original:Entry,onDismiss:()->Unit,onSave:(Entry)->Unit,calendarActions:(@Composable ()->Unit)?=null,reminderAccount:String?=null) {
     val context=LocalContext.current
+    val pickerContext=rememberPickerContext()
     val reminder=rememberEntryReminderDraft(reminderAccount,original.id)
     var title by rememberSaveable(original.id){mutableStateOf(original.title)}
     var note by rememberSaveable(original.id){mutableStateOf(original.note)}
+    var titleFormat by rememberSaveable(original.id){mutableStateOf(original.titleFormat)}
+    var descriptionFormat by rememberSaveable(original.id){mutableStateOf(original.descriptionFormat)}
     var date by rememberSaveable(original.id){mutableStateOf(original.date?.toString())}
     var start by rememberSaveable(original.id){mutableStateOf(original.start)}
     var end by rememberSaveable(original.id){mutableStateOf(original.end)}
@@ -32,7 +35,7 @@ import java.time.LocalTime
     LaunchedEffect(title,date,start,end){error=null}
     fun pickTime(value:String,fallback:String,onPick:(String)->Unit) {
         val time=LocalTime.parse(value.ifEmpty{fallback})
-        TimePickerDialog(context,{_,h,m->onPick("%02d:%02d".format(java.util.Locale.ROOT,h,m))},time.hour,time.minute,true).show()
+        TimePickerDialog(pickerContext,{_,h,m->onPick("%02d:%02d".format(java.util.Locale.ROOT,h,m))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),
@@ -43,8 +46,8 @@ import java.time.LocalTime
                     IconButton(onDismiss,Modifier.semantics{contentDescription="Закрыть редактирование"}){KotikiIcon(Glyph.CLOSE)}
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth(),label={Text("Название")},singleLine=true)
-                    OutlinedTextField(note,{note=it.take(300)},Modifier.fillMaxWidth(),label={Text("Комментарий")},minLines=2)
+                    RichTextEditor(title,{title=it;titleFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=titleFormat,label="Название",titleOnly=true,minLines=1,maxLength=100)
+                    RichTextEditor(note,{note=it;descriptionFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=descriptionFormat,label="Комментарий",minLines=2,maxLength=10000)
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         KotikiIcon(Glyph.MEETING,Modifier.size(24.dp),gatheringAccent())
                         Text("Событие-приглашение",style=MaterialTheme.typography.labelLarge)
@@ -52,7 +55,7 @@ import java.time.LocalTime
                     Text("Участники — мы оба",style=MaterialTheme.typography.bodyMedium)
                     OutlinedButton(onClick={
                         val day=date?.let(LocalDate::parse) ?: LocalDate.now()
-                        DatePickerDialog(context,{_,y,m,d->date=LocalDate.of(y,m+1,d).toString()},day.year,day.monthValue-1,day.dayOfMonth).show()
+                        DatePickerDialog(pickerContext,{_,y,m,d->date=LocalDate.of(y,m+1,d).toString()},day.year,day.monthValue-1,day.dayOfMonth).show()
                     },modifier=Modifier.fillMaxWidth()) {Text(date?.let{fullDayLabel(LocalDate.parse(it))} ?: "Выбрать дату")}
                     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         OutlinedButton({pickTime(start,"19:00"){start=it}},Modifier.weight(1f).fillMaxHeight()){Text(if(start.isEmpty())"Время начала" else "С $start")}
@@ -72,7 +75,7 @@ import java.time.LocalTime
                 HorizontalDivider()
                 Button(onClick={
                     val day=date?.let(LocalDate::parse)
-                    val result=original.copy(title=title.trim(),note=note.trim(),date=day,lastDate=day,
+                    val result=original.copy(title=title.trim(),note=note.trim(),titleFormat=titleFormat,descriptionFormat=descriptionFormat,date=day,lastDate=day,
                         week=day?.let(::mondayOf) ?: original.week,start=start,end=end,kind=Kind.EVENT,who=Person.BOTH,
                         visibility=Visibility.SHARED,isGathering=true,invite=InviteState.PENDING,done=false)
                     error=result.gatheringError()

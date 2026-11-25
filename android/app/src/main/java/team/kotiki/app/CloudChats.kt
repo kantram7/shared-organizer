@@ -8,10 +8,11 @@ data class ChatTarget(val id:String,val title:String,val collectionId:String="",
 data class ChatMessage(
     val id:String,val chatId:String,val sender:String,val actor:String,val role:Person,
     val text:String,val time:Long,val deleted:Boolean,val pending:Boolean,
+    val editedAt:Long=0L,val replyTo:String="",val format:String="plain-v1",val attachmentIds:List<String> = emptyList(),val error:String="",val readByMe:Boolean=false,
 )
 data class ChatSnapshot(
     val messages:List<ChatMessage> = emptyList(),val loading:Boolean=true,
-    val fromCache:Boolean=false,val pending:Boolean=false,val error:String?=null,
+    val fromCache:Boolean=false,val pending:Boolean=false,val error:String?=null,val readStateReady:Boolean=true,val accessDenied:Boolean=false,
 )
 
 /** Text chat. Authentication and the canonical participant identity stay separate. */
@@ -21,11 +22,29 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
     private val listeners=mutableMapOf<String,ListenerRegistration>()
     private val snapshotPending=mutableMapOf<String,Boolean>()
     private val knownChats=mutableSetOf<String>()
+    private val deniedChats=mutableSetOf<String>()
     private var initialDrain=true
     private var operations=0
     private var closed=false
+    private val context=com.google.firebase.FirebaseApp.getInstance().applicationContext
+    private val outbox=ChatOutbox(context,session.uid,session.spaceId)
+    private val outboxObservers=mutableMapOf<String,()->Unit>()
+    private val sending=mutableSetOf<String>()
+    private val ownReads=mutableMapOf<String,Boolean>()
+    private val handler=android.os.Handler(android.os.Looper.getMainLooper())
+    private val retryTick=object:Runnable {override fun run(){if(!closed){flush();handler.postDelayed(this,15000)}}}
+    private fun changed(){outboxObservers.values.toList().forEach{it()}}
+    private fun pendingMessage(m:PendingChatMessage)=ChatMessage(m.id,m.target.id,session.uid,session.authUid,session.viewer,m.text,m.time,false,!m.delivered,
+        replyTo=m.replyTo,format=m.format,attachmentIds=m.attachmentIds,error=m.error)
+    private fun parse(d:DocumentSnapshot,chat:String):ChatMessage?=runCatching {
+        ChatMessage(d.id,chat,d.getString("sender")!!,d.getString("actor")!!,Person.valueOf(d.getString("role")!!),d.getString("text").orEmpty(),
+            d.getTimestamp("createdAt",DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.toDate()?.time ?: d.getLong("clientTime") ?: 0L,
+            d.getBoolean("deleted") ?: false,d.metadata.hasPendingWrites(),d.getTimestamp("editedAt")?.toDate()?.time ?: 0L,
+            d.getString("replyTo").orEmpty(),d.getString("format") ?: "plain-v1",(d.get("attachmentIds") as? List<*>)?.filterIsInstance<String>() ?: emptyList())
+    }.getOrNull()
 
     init {
+        handler.post(retryTick)
         pendingChanged()
         // Includes writes persisted before the current process started, even for a closed chat.
         db.waitForPendingWrites().addOnCompleteListener {
@@ -40,7 +59,7 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
             target.id=="plan_${target.collectionId}_${target.itemId}" && !target.id.contains('/') ||
         target.collectionId.isEmpty() && target.itemId.isNotBlank() && target.id=="entry_${target.itemId}" && !target.id.contains('/')
 
-    private fun ensureChat(target:ChatTarget,ready:()->Unit,failed:(Exception?)->Unit) {
+    internal fun ensureChat(target:ChatTarget,ready:()->Unit,failed:(Exception?)->Unit) {
         if(closed)return
         if(!valid(target)){failed(IllegalArgumentException("Invalid chat"));return}
         if(target.id in knownChats){ready();return}
@@ -67,6 +86,8 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
                 if(!closed){if(document.exists())available() else createOrRead()}
             }.addOnFailureListener{if(!closed)failed(it)}
         }
+        // After a confirmed revocation, cache cannot prove a subsequent grant.
+        if(target.id in deniedChats){readServer();return}
         // Cache metadata explicitly so previously opened rooms also work after an offline restart.
         ref.get(Source.CACHE).addOnSuccessListener{cached->
             if(!closed){if(cached.exists())available() else readServer()}
@@ -76,7 +97,22 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
     fun observe(target:ChatTarget,since:Long?=null,messageLimit:Int=100,onState:(ChatSnapshot)->Unit):()->Unit {
         val token=newId()
         var active=true
-        var last=ChatSnapshot()
+        var last=ChatSnapshot(accessDenied=target.id in deniedChats)
+        val receipts=mutableMapOf<String,ListenerRegistration>()
+        val handoff=mutableMapOf<String,ChatMessage>()
+        fun emit(){
+            if(!active || closed)return
+            if(last.accessDenied){handoff.clear();onState(last.copy(messages=emptyList(),pending=false));return}
+            val pending=outbox.all().filter{it.target.id==target.id && last.messages.none{remote->remote.id==it.id}}.map(::pendingMessage)
+            onState(last.copy(messages=mergeChatOutgoing(last.messages.map{it.copy(readByMe=ownReads["${target.id}/${it.id}"]==true)},pending,handoff),pending=last.pending || pending.any{it.pending && it.error.isEmpty()},readStateReady=last.messages.filter{it.sender!=session.uid && !it.deleted && !it.pending}.all{ownReads.containsKey("${target.id}/${it.id}")}))
+        }
+        fun denied(error:Exception?) {
+            receipts.values.forEach{it.remove()};receipts.clear();knownChats.remove(target.id);deniedChats.add(target.id)
+            ownReads.keys.filter{it.startsWith("${target.id}/")}.toList().forEach(ownReads::remove)
+            last=ChatSnapshot(loading=false,error=messageFor(error),accessDenied=true);emit()
+        }
+        outboxObservers[token]=::emit
+        emit()
         begin()
         ensureChat(target,{
             end()
@@ -88,24 +124,31 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
                     if(!active || closed)return@addSnapshotListener
                     if(error!=null){
                         snapshotPending.remove(token);pendingChanged()
-                        val visible=if(error.code==FirebaseFirestoreException.Code.PERMISSION_DENIED)emptyList() else last.messages
-                        onState(last.copy(messages=visible,loading=false,pending=false,error=messageFor(error)))
+                        if(error.code==FirebaseFirestoreException.Code.PERMISSION_DENIED)denied(error)
+                        else {last=last.copy(loading=false,pending=false,error=messageFor(error));emit()}
                         return@addSnapshotListener
                     }
-                    if(snapshot==null)return@addSnapshotListener
-                    val messages=snapshot.documents.mapNotNull{document->runCatching {
-                        ChatMessage(document.id,target.id,document.getString("sender")!!,document.getString("actor")!!,
-                            Person.valueOf(document.getString("role")!!),document.getString("text") ?: "",
-                            document.getTimestamp("createdAt",DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.toDate()?.time
-                                ?: document.getLong("clientTime") ?: 0L,
-                            document.getBoolean("deleted") ?: false,document.metadata.hasPendingWrites())
-                    }.getOrNull()}.sortedWith(compareBy<ChatMessage>{it.time}.thenBy{it.id})
+                    if(snapshot==null || last.accessDenied && snapshot.metadata.isFromCache)return@addSnapshotListener
+                    val messages=snapshot.documents.mapNotNull{parse(it,target.id)}.sortedWith(compareBy<ChatMessage>{it.time}.thenBy{it.id})
+                    if(!snapshot.metadata.isFromCache)messages.filter{!it.pending}.forEach{runCatching{outbox.remove(it.id)}}
+                    val incoming=messages.filter{it.sender!=session.uid && !it.deleted && !it.pending}.map{it.id}.toSet()
+                    receipts.keys.filter{it !in incoming}.toList().forEach{receipts.remove(it)?.remove()}
+                    incoming.filter{it !in receipts}.forEach{id->receipts[id]=root.document(target.id).collection("messages").document(id).collection("reads").document(session.uid).addSnapshotListener{receipt,receiptError->
+                        if(active && !closed && !last.accessDenied){
+                            if(receiptError?.code==FirebaseFirestoreException.Code.PERMISSION_DENIED)denied(receiptError)
+                            else if(receiptError==null){ownReads["${target.id}/$id"]=receipt?.exists()==true;emit()}
+                        }
+                    }}
                     snapshotPending[token]=snapshot.metadata.hasPendingWrites();pendingChanged()
+                    if(!snapshot.metadata.isFromCache)deniedChats.remove(target.id)
                     last=ChatSnapshot(messages,false,snapshot.metadata.isFromCache,snapshot.metadata.hasPendingWrites())
-                    onState(last)
+                    emit()
                 }
-        },{error->end();if(active && !closed)onState(last.copy(loading=false,error=messageFor(error)))})
-        return {active=false;listeners.remove(token)?.remove();snapshotPending.remove(token);pendingChanged()}
+        },{error->end();if(active && !closed){
+            if((error as? FirebaseFirestoreException)?.code==FirebaseFirestoreException.Code.PERMISSION_DENIED)denied(error)
+            else {last=last.copy(loading=false,error=messageFor(error));emit()}
+        }})
+        return {active=false;receipts.values.forEach{it.remove()};outboxObservers.remove(token);listeners.remove(token)?.remove();snapshotPending.remove(token);pendingChanged()}
     }
 
     /** Observe metadata without creating empty rooms while showing board/calendar badges. */
@@ -116,7 +159,8 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
             if(active && !closed) {
                 if(error!=null || document?.exists()!=true) {
                     messages?.invoke();messages=null
-                    onState(ChatSnapshot(loading=false,error=error?.let(::messageFor)))
+                    if(error?.code==FirebaseFirestoreException.Code.PERMISSION_DENIED){deniedChats.add(target.id);knownChats.remove(target.id)}
+                    onState(ChatSnapshot(loading=false,error=error?.let(::messageFor),accessDenied=error?.code==FirebaseFirestoreException.Code.PERMISSION_DENIED))
                 } else if(messages==null) {
                     knownChats.add(target.id)
                     messages=observe(target,since,onState=onState)
@@ -126,30 +170,91 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
         return {active=false;messages?.invoke();listeners.remove(token)?.remove()}
     }
 
-    fun send(target:ChatTarget,text:String,onQueued:()->Unit,onFailure:(String)->Unit) {
+    fun send(target:ChatTarget,text:String,onQueued:()->Unit,onFailure:(String)->Unit,replyTo:String="",format:String="markdown-v1",attachmentIds:List<String> = emptyList(),id:String=newId()) {
         if(closed){onFailure("Чат закрыт. Открой его снова.");return}
-        val body=text.trim()
-        if(body.isEmpty() || body.length>4000){onFailure("Сообщение должно содержать от 1 до 4000 символов.");return}
-        begin()
-        ensureChat(target,{
-            val payload=mapOf("sender" to session.uid,"actor" to session.authUid,"role" to session.viewer.name,
-                "text" to body,"createdAt" to FieldValue.serverTimestamp(),"clientTime" to System.currentTimeMillis(),"deleted" to false)
-            val message=root.document(target.id).collection("messages").document()
-            val task=db.batch().set(message,payload).set(root.parent!!.collection("pushQueue").document(message.id),mapOf(
-                "kind" to "chat","recordId" to "","revision" to "","chatId" to target.id,"messageId" to message.id,
-                "actor" to session.authUid,"createdAt" to FieldValue.serverTimestamp())).commit()
-            onQueued()
-            task.addOnCompleteListener {result->
-                if(!closed){end();if(!result.isSuccessful)onFailure(messageFor(result.exception)) else AndroidPush.wake(com.google.firebase.FirebaseApp.getInstance().applicationContext)}
-            }
-        },{error->end();onFailure(messageFor(error))})
+        if(!valid(target) || (text.isBlank() && attachmentIds.isEmpty()) || text.length>4000 || attachmentIds.size>10){onFailure("Проверь текст и вложения сообщения.");return}
+        try {outbox.put(PendingChatMessage(id,target,text.trim(),System.currentTimeMillis(),replyTo,format,attachmentIds))}
+        catch(_:Exception){onFailure("Не удалось сохранить сообщение на телефоне. Освободи место и повтори.");return}
+        onQueued();changed();flush()
     }
+    fun retryMessage(id:String){outbox.all().find{it.id==id}?.let{runCatching{outbox.put(it.copy(error=""))}};changed();flush()}
+    private fun flush(){
+        if(closed)return
+        outbox.all().filter{!it.delivered && it.id !in sending && it.error.isEmpty()}.forEach{m->
+            sending.add(m.id);begin()
+            fun finished(error:Exception?){
+                sending.remove(m.id);end()
+                if(error==null)runCatching{outbox.acknowledge(m.id)}
+                else {
+                    val permanent=(error as? FirebaseFirestoreException)?.code in listOf(FirebaseFirestoreException.Code.PERMISSION_DENIED,FirebaseFirestoreException.Code.INVALID_ARGUMENT,FirebaseFirestoreException.Code.NOT_FOUND) || (error as? com.google.firebase.functions.FirebaseFunctionsException)?.code in listOf(com.google.firebase.functions.FirebaseFunctionsException.Code.PERMISSION_DENIED,com.google.firebase.functions.FirebaseFunctionsException.Code.INVALID_ARGUMENT,com.google.firebase.functions.FirebaseFunctionsException.Code.NOT_FOUND,com.google.firebase.functions.FirebaseFunctionsException.Code.FAILED_PRECONDITION)
+                    if(permanent)runCatching{outbox.put(m.copy(error=messageFor(error)))}
+                }
+                changed()
+            }
+            ensureChat(m.target,{
+                if(m.attachmentIds.isNotEmpty()) {
+                    com.google.firebase.functions.FirebaseFunctions.getInstance("europe-west3").getHttpsCallable("commitAttachmentMessage").call(mapOf(
+                        "spaceId" to session.spaceId,"chatId" to m.target.id,"messageId" to m.id,"text" to m.text,"replyTo" to m.replyTo,
+                        "format" to m.format,"attachmentIds" to m.attachmentIds,"clientTime" to m.time))
+                        .addOnSuccessListener{finished(null)}.addOnFailureListener{finished(it)}
+                } else {
+                    val ref=root.document(m.target.id).collection("messages").document(m.id)
+                    db.runTransaction {tx->
+                        val old=tx.get(ref)
+                        if(!old.exists())tx.set(ref,mapOf("sender" to session.uid,"actor" to session.authUid,"role" to session.viewer.name,
+                            "text" to m.text,"createdAt" to FieldValue.serverTimestamp(),"clientTime" to m.time,"deleted" to false,"replyTo" to m.replyTo,"format" to m.format,"attachmentIds" to emptyList<String>()))
+                        true
+                    }.addOnSuccessListener{finished(null)}.addOnFailureListener{finished(it)}
+                }
+            },{finished(it ?: IllegalStateException("Unavailable"))})
+        }
+    }
+    fun markRead(message:ChatMessage,onComplete:(String?)->Unit={}){
+        if(closed){onComplete("Чат закрыт. Открой его снова.");return}
+        if(message.sender==session.uid || message.pending || message.deleted){onComplete(null);return}
+        root.document(message.chatId).collection("messages").document(message.id).collection("reads").document(session.uid)
+            .set(mapOf("readAt" to FieldValue.serverTimestamp(),"actor" to session.authUid))
+            .addOnCompleteListener{result->onComplete(if(result.isSuccessful)null else messageFor(result.exception))}
+    }
+    fun observeRead(message:ChatMessage,onRead:(Boolean)->Unit):()->Unit {
+        val other=session.uids.firstOrNull{it!=session.uid} ?: return {}
+        val registration=root.document(message.chatId).collection("messages").document(message.id).collection("reads").document(other)
+            .addSnapshotListener{d,_->onRead(d?.exists()==true)}
+        return {registration.remove()}
+    }
+    fun react(message:ChatMessage,emoji:String?,failed:(String)->Unit){
+        val ref=root.document(message.chatId).collection("messages").document(message.id).collection("reactions").document(session.uid)
+        val task=if(emoji==null)ref.delete()else ref.set(mapOf("emoji" to emoji,"updatedAt" to FieldValue.serverTimestamp(),"actor" to session.authUid))
+        task.addOnFailureListener{failed(messageFor(it))}
+    }
+    fun observeReactions(message:ChatMessage,onReactions:(Map<String,String>)->Unit):()->Unit {
+        val registration=root.document(message.chatId).collection("messages").document(message.id).collection("reactions")
+            .addSnapshotListener{d,_->onReactions(d?.documents?.mapNotNull{doc->doc.getString("emoji")?.let{doc.id to it}}?.toMap() ?: emptyMap())}
+        return {registration.remove()}
+    }
+    fun search(target:ChatTarget,text:String,onResult:(List<ChatMessage>,String?)->Unit){
+        val found=mutableListOf<ChatMessage>()
+        fun page(after:DocumentSnapshot?){
+            var q:Query=root.document(target.id).collection("messages").orderBy("createdAt",Query.Direction.DESCENDING).limit(200)
+            if(after!=null)q=q.startAfter(after)
+            q.get(Source.SERVER).addOnSuccessListener{snap->
+                if(closed)return@addOnSuccessListener
+                found+=snap.documents.mapNotNull{parse(it,target.id)}.filter{!it.deleted && richPlainText(it.text,it.format).contains(text,ignoreCase=true)}
+                if(snap.size()==200)page(snap.documents.last())else onResult(found,null)
+            }.addOnFailureListener{onResult(emptyList(),messageFor(it))}
+        };page(null)
+    }
+    fun observeMessage(chatId:String,id:String,onResult:(ChatMessage?)->Unit):()->Unit {
+        val listener=root.document(chatId).collection("messages").document(id).addSnapshotListener{d,_->onResult(d?.let{parse(it,chatId)})}
+        return{listener.remove()}
+    }
+    fun getMessage(target:ChatTarget,id:String,onResult:(ChatMessage?)->Unit){root.document(target.id).collection("messages").document(id).get().addOnSuccessListener{onResult(parse(it,target.id))}.addOnFailureListener{onResult(null)}}
 
     fun edit(message:ChatMessage,text:String,onFailure:(String)->Unit) {
         val body=text.trim()
         if(closed || message.sender!=session.uid || message.deleted || body.isEmpty() || body.length>4000)return
         begin()
-        root.document(message.chatId).collection("messages").document(message.id).update("text",body)
+        root.document(message.chatId).collection("messages").document(message.id).update(mapOf("text" to body,"editedAt" to FieldValue.serverTimestamp(),"format" to "markdown-v1"))
             .addOnCompleteListener{r->if(!closed){end();if(!r.isSuccessful)onFailure(messageFor(r.exception))}}
     }
 
@@ -166,5 +271,5 @@ class CloudChats(val session:CloudSession,private val onPending:(Boolean)->Unit)
         FirebaseFirestoreException.Code.UNAVAILABLE->"Нет соединения. Новый чат нужно один раз открыть с интернетом; черновик сохранён."
         else->"Не удалось выполнить действие. Черновик сохранён; попробуй снова."
     }
-    fun close(){closed=true;listeners.values.forEach{it.remove()};listeners.clear();snapshotPending.clear()}
+    fun close(){closed=true;handler.removeCallbacks(retryTick);outboxObservers.clear();listeners.values.forEach{it.remove()};listeners.clear();snapshotPending.clear()}
 }

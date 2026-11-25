@@ -22,9 +22,12 @@ import java.time.LocalTime
 /** Returns a candidate only. The caller commits it with the proposal ID originally shown to the user. */
 @Composable fun ProposalEditor(original:Entry,onDismiss:()->Unit,onPropose:(Entry)->Unit){
     val context=LocalContext.current
+    val pickerContext=rememberPickerContext()
     val initial=remember(original.id,original.proposal?.id){InviteWorkflow.candidate(original)}
     var title by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.title)}
     var note by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.note)}
+    var titleFormat by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.titleFormat)}
+    var descriptionFormat by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.descriptionFormat)}
     var date by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.date ?: LocalDate.now())}
     var last by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.lastDate ?: initial.date ?: LocalDate.now())}
     var start by rememberSaveable(original.id,original.proposal?.id){mutableStateOf(initial.start.ifBlank{"19:00"})}
@@ -32,11 +35,11 @@ import java.time.LocalTime
     var error by remember{mutableStateOf<String?>(null)}
     LaunchedEffect(title,note,date,last,start,end){error=null}
     fun pickDate(value:LocalDate,onPick:(LocalDate)->Unit){
-        DatePickerDialog(context,{_,year,month,day->onPick(LocalDate.of(year,month+1,day))},value.year,value.monthValue-1,value.dayOfMonth).show()
+        DatePickerDialog(pickerContext,{_,year,month,day->onPick(LocalDate.of(year,month+1,day))},value.year,value.monthValue-1,value.dayOfMonth).show()
     }
     fun pickTime(value:String,onPick:(String)->Unit){
         val time=runCatching{LocalTime.parse(value)}.getOrDefault(LocalTime.of(19,0))
-        TimePickerDialog(context,{_,hour,minute->onPick("%02d:%02d".format(java.util.Locale.ROOT,hour,minute))},time.hour,time.minute,true).show()
+        TimePickerDialog(pickerContext,{_,hour,minute->onPick("%02d:%02d".format(java.util.Locale.ROOT,hour,minute))},time.hour,time.minute,true).show()
     }
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){
         EditorSurface(Modifier.fillMaxWidth().fillMaxHeight(.94f).windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(12.dp),shape=MaterialTheme.shapes.extraLarge){
@@ -50,8 +53,8 @@ import java.time.LocalTime
                         Text("До подтверждения остаётся прежняя встреча:",style=MaterialTheme.typography.labelLarge)
                         Text(listOfNotNull(original.date?.let(::fullDayLabel),original.start.takeIf{it.isNotEmpty()}?.let{"$it–${original.end}"}).joinToString(" · "))
                     }else Text("Изменения вступят в силу после подтверждения второго участника.")
-                    OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth(),singleLine=true,label={Text("Название")})
-                    OutlinedTextField(note,{note=it.take(300)},Modifier.fillMaxWidth(),minLines=2,label={Text("Комментарий к предложению")})
+                    RichTextEditor(title,{title=it;titleFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=titleFormat,label="Название",titleOnly=true,minLines=1,maxLength=100)
+                    RichTextEditor(note,{note=it;descriptionFormat=MARKDOWN_TEXT_FORMAT},Modifier.fillMaxWidth(),format=descriptionFormat,label="Комментарий",minLines=2,maxLength=10000)
                     EditorLinks(title+"\n"+note)
                     OutlinedButton(onClick={pickDate(date){date=it;if(original.isGathering || last<it)last=it}},modifier=Modifier.fillMaxWidth().semantics{contentDescription="Дата предложения"}){Text(fullDayLabel(date))}
                     if(!original.isGathering)OutlinedButton(onClick={pickDate(last){last=it}},modifier=Modifier.fillMaxWidth().semantics{contentDescription="Окончание предложения"}){Text("До ${dateLabel(last)} включительно")}
@@ -64,7 +67,7 @@ import java.time.LocalTime
                 }
                 HorizontalDivider()
                 Button(onClick={
-                    val candidate=original.copy(title=title.trim(),note=note.trim(),date=date,lastDate=if(original.isGathering)date else last,week=mondayOf(date),start=start,end=end)
+                    val candidate=original.copy(title=title.trim(),note=note.trim(),titleFormat=titleFormat,descriptionFormat=descriptionFormat,date=date,lastDate=if(original.isGathering)date else last,week=mondayOf(date),start=start,end=end)
                     error=InviteWorkflow.proposalError(original,candidate)
                     if(error==null)onPropose(candidate)
                 },modifier=Modifier.fillMaxWidth()){Text("Отправить предложение")}

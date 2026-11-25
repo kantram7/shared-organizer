@@ -28,11 +28,20 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [35])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AppSmokeTest {
+    private fun nativeEditor(label:String):VisualEditText {
+        fun find(view:android.view.View):VisualEditText? {
+            if(view is VisualEditText && view.contentDescription?.toString()==label)return view
+            if(view is android.view.ViewGroup)for(i in 0 until view.childCount)find(view.getChildAt(i))?.let{return it}
+            return null
+        }
+        return requireNotNull(find(org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView))
+    }
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @Before fun waitForWelcome(){compose.mainClock.advanceTimeBy(2200);compose.waitForIdle();if(compose.onAllNodesWithText("Посмотреть локальное демо").fetchSemanticsNodes().isNotEmpty())compose.onNodeWithText("Посмотреть локальное демо").performScrollTo().performClick()}
     @Test fun winterIsNotSelectableBeforeRemoteLaunchAndSystemButtonsStayTransparent() {
         compose.onNodeWithText("Настройки").performClick()
-        compose.onNodeWithText("Зима вместе").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Тема: Светлая").performScrollTo().performClick()
+        compose.onNodeWithText("Зима вместе").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithText("Зима вместе · скоро").assertDoesNotExist()
         org.junit.Assert.assertFalse(compose.activity.window.isNavigationBarContrastEnforced)
         @Suppress("DEPRECATION")
@@ -70,9 +79,9 @@ class AppSmokeTest {
     }
     @Test fun draftSurvivesActivityRecreation() {
         compose.onNodeWithText("+ Добавить").performClick()
-        compose.onNodeWithText("Название").performTextInput("Draft survives")
+        compose.runOnIdle{nativeEditor("Название").requestFocus();nativeEditor("Название").text.append("Draft survives")}
         compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("Draft survives").assertIsDisplayed()
+        compose.runOnIdle{org.junit.Assert.assertEquals("Draft survives",nativeEditor("Название").text.toString())}
         compose.onNodeWithText("Сохранить").assertIsDisplayed()
         compose.onNodeWithContentDescription("Закрыть редактирование").performClick()
     }
@@ -86,7 +95,7 @@ class AppSmokeTest {
         compose.onAllNodesWithText("Ёжики и путешествия").onFirst().assertIsDisplayed()
     }
     @Test fun gatheringHasFixedParticipantsAndRequiresSchedule() {
-        compose.onNodeWithText("Общий сбор").performScrollTo().performClick()
+        compose.onNodeWithText("Собрать\nкотиков").performScrollTo().performClick()
         compose.onNodeWithText("Участники — мы оба").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Дело").assertDoesNotExist()
         compose.onNodeWithText("Есть точное время").assertDoesNotExist()
@@ -95,10 +104,9 @@ class AppSmokeTest {
         compose.onNodeWithText("Время окончания").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Сохранить приглашение").performClick()
         compose.onNodeWithText("Выбери дату").assertIsDisplayed()
-        compose.onNodeWithText("Название").performScrollTo().performTextClearance()
-        compose.onNodeWithText("Название").performTextInput("Собрание для проверки")
+        compose.runOnIdle{nativeEditor("Название").requestFocus();nativeEditor("Название").text.replace(0,nativeEditor("Название").length(),"Собрание для проверки")}
         compose.activityRule.scenario.recreate()
-        compose.onNodeWithText("Собрание для проверки").assertIsDisplayed()
+        compose.runOnIdle{org.junit.Assert.assertEquals("Собрание для проверки",nativeEditor("Название").text.toString())}
         compose.onNodeWithText("Выбрать дату").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Закрыть редактирование").performClick()
     }
@@ -149,11 +157,11 @@ class AppSmokeTest {
         compose.activityRule.scenario.recreate();compose.mainClock.advanceTimeBy(2200)
         compose.onNodeWithText("Планы").performScrollTo().performClick()
         compose.onNodeWithText("Plan details").performScrollTo().performClick()
+        compose.onNodeWithText("Развернуть").performClick()
         compose.onNodeWithText("Initial description").assertIsDisplayed()
         compose.onNodeWithText("Комментарии").assertIsDisplayed()
         compose.onNodeWithText("Редактировать").performClick()
-        compose.onNode(hasText("Описание") and hasSetTextAction()).performTextClearance()
-        compose.onNode(hasText("Описание") and hasSetTextAction()).performTextInput("Updated description")
+        compose.runOnIdle{nativeEditor("Описание").requestFocus();nativeEditor("Описание").text.replace(0,nativeEditor("Описание").length(),"Updated description")}
         compose.onNodeWithText("Сохранить").performClick()
         compose.onNodeWithText("Updated description").assertIsDisplayed()
     }

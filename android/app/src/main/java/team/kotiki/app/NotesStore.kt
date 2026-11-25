@@ -11,15 +11,18 @@ import java.security.MessageDigest
 data class NoteGroup(val id:String,val name:String,val shared:Boolean,val owner:Person,val editable:Boolean=true,val archived:Boolean=false,val updatedAt:Long=System.currentTimeMillis())
 enum class NoteBlockKind { TEXT, HEADING, BULLET, NUMBERED, CHECK }
 data class NoteBlock(val id:String=newId(),val kind:NoteBlockKind=NoteBlockKind.TEXT,val text:String="",val checked:Boolean=false,val bold:Boolean=false)
-data class Note(val id:String,val groupId:String,val title:String="",val blocks:List<NoteBlock> = listOf(NoteBlock()),val archived:Boolean=false,val updatedAt:Long=System.currentTimeMillis(),val revision:String=newId()) {
-    fun matches(query:String)=title.contains(query,true)||blocks.any{it.text.contains(query,true)}
-    val label get()=title.ifBlank{"Без названия"}
+data class Note(val id:String,val groupId:String,val title:String="",val blocks:List<NoteBlock> = listOf(NoteBlock()),val archived:Boolean=false,val updatedAt:Long=System.currentTimeMillis(),val revision:String=newId(),val textFormat:String=PLAIN_TEXT_FORMAT,val markdown:String="",val titleFormat:String=PLAIN_TEXT_FORMAT) {
+    val body get()=if(textFormat==MARKDOWN_TEXT_FORMAT)markdown else legacyNoteMarkdown(blocks)
+    val preview get()=richPlainText(body,MARKDOWN_TEXT_FORMAT)
+    fun matches(query:String)=richPlainText(title,titleFormat).contains(query,true)||preview.contains(query,true)
+    val label get()=richPlainText(title,titleFormat).ifBlank{"Без названия"}
 }
 internal fun NoteGroup.json()=JSONObject().put("id",id).put("name",name).put("shared",shared).put("owner",owner.name).put("editable",editable).put("archived",archived).put("updatedAt",updatedAt)
 internal fun Note.json()=JSONObject().put("id",id).put("groupId",groupId).put("title",title).put("archived",archived).put("updatedAt",updatedAt).put("revision",revision)
+    .put("textFormat",textFormat).put("markdown",markdown).put("titleFormat",titleFormat)
     .put("blocks",JSONArray(blocks.map{JSONObject().put("id",it.id).put("kind",it.kind.name).put("text",it.text).put("checked",it.checked).put("bold",it.bold)}))
 internal fun noteGroup(j:JSONObject)=NoteGroup(j.getString("id"),j.getString("name"),j.getBoolean("shared"),Person.valueOf(j.getString("owner")),j.optBoolean("editable",true),j.optBoolean("archived"),j.optLong("updatedAt"))
-internal fun noteValue(j:JSONObject)=Note(j.getString("id"),j.getString("groupId"),j.optString("title"),j.getJSONArray("blocks").let{a->(0 until a.length()).map{a.getJSONObject(it).let{b->NoteBlock(b.getString("id"),NoteBlockKind.valueOf(b.getString("kind")),b.optString("text"),b.optBoolean("checked"),b.optBoolean("bold"))}}},j.optBoolean("archived"),j.optLong("updatedAt"),j.getString("revision"))
+internal fun noteValue(j:JSONObject)=Note(j.getString("id"),j.getString("groupId"),j.optString("title"),(j.optJSONArray("blocks")?:JSONArray()).let{a->(0 until a.length()).map{a.getJSONObject(it).let{b->NoteBlock(b.getString("id"),NoteBlockKind.valueOf(b.getString("kind")),b.optString("text"),b.optBoolean("checked"),b.optBoolean("bold"))}}},j.optBoolean("archived"),j.optLong("updatedAt"),j.getString("revision"),j.optString("textFormat",PLAIN_TEXT_FORMAT),j.optString("markdown"),j.optString("titleFormat",PLAIN_TEXT_FORMAT))
 
 /** No personal note or archive ever enters Firestore, prefs, backups, or record revisions. */
 class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=null) {
@@ -29,10 +32,14 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
     var pending by mutableStateOf(false); private set
     var online by mutableStateOf(session==null); private set
     var healthy by mutableStateOf(true); private set
+    var localSaving by mutableStateOf(false); private set
     private val key=MessageDigest.getInstance("SHA-256").digest((session?.let{"${it.spaceId}/${it.uid}"} ?: "demo/${viewer.name}").toByteArray()).joinToString(""){"%02x".format(it)}
     internal val file=NoteFile(File(context.noBackupFilesDir,"notes-$key.json"))
     private val writes=linkedMapOf<String,JSONObject>()
     private val moves=linkedMapOf<String,JSONObject>()
+    // Permanent server rejections are isolated, retained locally and never retried in a tight loop.
+    private val rejected=linkedMapOf<String,JSONObject>()
+    private var persistenceGeneration=0L
     private val db by lazy{FirebaseFirestore.getInstance()}
     private val root by lazy{db.collection("spaces").document(session!!.spaceId)}
     private val listeners=mutableListOf<ListenerRegistration>()
@@ -44,26 +51,41 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
     var lastSyncedAt by mutableStateOf(0L); private set
     private var closed=false
     init {
+        file.awaitWrites()
         if(file.baseFile.exists())try {
             val j=JSONObject(String(file.readFully(),Charsets.UTF_8))
             fun array(name:String,read:(JSONObject)->Unit){val a=j.optJSONArray(name)?:JSONArray();for(i in 0 until a.length())read(a.getJSONObject(i))}
             array("groups"){groups.add(noteGroup(it))};array("notes"){notes.add(noteValue(it))}
             array("writes"){writes[it.getString("path")]=it};array("moves"){moves[it.getString("id")]=it}
+            array("rejected"){rejected[it.getString("path")]=it}
         } catch(e:Exception){readFailure=e;healthy=false;error="Не удалось прочитать заметки. Исходный файл сохранён; изменения заблокированы."}
         pending=writes.isNotEmpty()||moves.isNotEmpty()
+        if(healthy&&rejected.isNotEmpty())error="Есть запись, не принятая сервером. Локальная копия сохранена; остальные заметки синхронизируются."
     }
-    private fun persist():Boolean {
+    private fun persist(durable:Boolean=false):Boolean {
         if(!healthy)return false
-        val j=JSONObject().put("groups",JSONArray(groups.map{it.json()})).put("notes",JSONArray(notes.map{it.json()}))
-            .put("writes",JSONArray(writes.values.toList())).put("moves",JSONArray(moves.values.toList()))
-        return try{file.write(j.toString().toByteArray(Charsets.UTF_8));pending=writes.isNotEmpty()||moves.isNotEmpty();true}
-        catch(e:Exception){readFailure=e;healthy=false;error="Не удалось сохранить на телефоне. Освободи место и перезапусти приложение.";false}
+        val savedGroups=groups.toList();val savedNotes=notes.toList()
+        val savedWrites=writes.values.toList();val savedMoves=moves.values.toList();val savedRejected=rejected.values.toList()
+        val generation=++persistenceGeneration
+        localSaving=true;pending=true
+        val future=file.enqueue {
+            JSONObject().put("groups",JSONArray(savedGroups.map{it.json()})).put("notes",JSONArray(savedNotes.map{it.json()}))
+                .put("writes",JSONArray(savedWrites)).put("moves",JSONArray(savedMoves)).put("rejected",JSONArray(savedRejected)).toString().toByteArray(Charsets.UTF_8)
+        }
+        fun complete(failure:Exception?) {
+            if(failure!=null){readFailure=failure;healthy=false;localSaving=false;error="Не удалось сохранить на телефоне. Освободи место и перезапусти приложение."}
+            else if(generation==persistenceGeneration){localSaving=false;pending=writes.isNotEmpty()||moves.isNotEmpty();if(!closed)drain()}
+        }
+        if(durable)return try{future.get();complete(null);true}catch(e:Exception){complete(e);false}
+        file.afterWrites {failure->handler.post{complete(failure)}}
+        return true
     }
 
     fun canEdit(group:NoteGroup)=healthy && (group.owner==viewer || group.shared && group.editable)
     fun moving(id:String)=id in moves
     fun groupOf(note:Note)=groups.find{it.id==note.groupId}
     private fun queue(path:String,value:JSONObject?,create:Boolean=false) {
+        rejected.remove(path)
         val wasCreate=writes[path]?.optBoolean("create")==true
         writes[path]=JSONObject().put("path",path).put("create",create||wasCreate).put("token",newId()).put("value",value ?: JSONObject.NULL)
     }
@@ -83,6 +105,13 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
         if(!canEdit(group)||group.archived)return ""
         val n=Note(newId(),group.id);notes.add(n)
         if(group.shared&&session!=null)queue("notes/${n.id}",n.json(),true);changed();return n.id
+    }
+    fun createFromText(group:NoteGroup,text:String,format:String=PLAIN_TEXT_FORMAT,title:String=""):String {
+        if(!canEdit(group)||group.archived)return ""
+        val body=if(format==MARKDOWN_TEXT_FORMAT)text else RichTextCodec.escape(text)
+        val note=Note(newId(),group.id,title=title.take(200),blocks=emptyList(),markdown=body,textFormat=MARKDOWN_TEXT_FORMAT)
+        if(note.json().toString().length>150000){error="Текст слишком большой для одной заметки.";return ""}
+        notes.add(note);if(group.shared&&session!=null)queue("notes/${note.id}",note.json(),true);changed();return note.id
     }
     fun edit(note:Note) {
         val old=notes.find{it.id==note.id}?:return
@@ -111,7 +140,7 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
             .put("targetShared",target.shared).put("newId",newId()).put("snapshot",note.json())
         changed()
     }
-    fun retry(){error="";drain()}
+    fun retry(){error="";rejected.forEach{(path,value)->if(path.startsWith("moves/"))moves[path.substringAfter('/')]=value else writes[path]=value};rejected.clear();persist();drain()}
     fun start() {
         if(session==null||!healthy)return
         listOf("noteGroups","notes").forEach{kind->listeners+=root.collection(kind).addSnapshotListener(MetadataChanges.INCLUDE){snapshot,e->
@@ -120,7 +149,8 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
             if(snapshot==null)return@addSnapshotListener
             online=!snapshot.metadata.isFromCache
             try {
-                val protected=writes.keys.filter{it.startsWith("$kind/")}.map{it.substringAfter('/')}.toSet()+moves.keys
+                val protected=(writes.keys+rejected.keys).filter{it.startsWith("$kind/")}.map{it.substringAfter('/')}.toSet()+moves.keys+
+                    if(kind=="noteGroups")notes.filter{"notes/${it.id}" in rejected}.map{it.groupId} else emptyList()
                 if(kind=="noteGroups") {
                     val incoming=snapshot.documents.map{noteGroup(JSONObject(it.data!!))}
                     groups.removeAll{it.shared && it.id !in protected};groups.addAll(incoming.filter{it.id !in protected})
@@ -143,7 +173,7 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
         }
     }
     private fun drain() {
-        if(session==null||closed||running||!healthy)return
+        if(session==null||closed||running||!healthy||localSaving)return
         val delay=500-(android.os.SystemClock.elapsedRealtime()-lastChange)
         if(writes.isNotEmpty()&&delay>0){handler.removeCallbacks(flush);handler.postDelayed(flush,delay);return}
         val write=writes.values.firstOrNull()
@@ -157,17 +187,14 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
             } else if(write.getBoolean("create"))ref.set(value.toCloudMap()) else ref.update(value.toCloudMap())
             task.addOnSuccessListener {
                 if(closed)return@addOnSuccessListener
-                if(writes[path]?.optString("token")==token)writes.remove(path) else writes[path]?.put("create",false)
-                running=false;error="";lastSyncedAt=System.currentTimeMillis();persist();drain()
+                if(writes[path]?.optString("token")==token)writes.remove(path) else writes[path]?.let{writes[path]=JSONObject(it.toString()).put("create",false)}
+                running=false;error=if(rejected.isEmpty())"" else "Есть запись, не принятая сервером. Локальная копия сохранена; остальные заметки синхронизируются.";lastSyncedAt=System.currentTimeMillis();persist();drain()
             }.addOnFailureListener{failure->if(!closed){
                 failed(failure)
-                if(path.startsWith("notes/") && (failure as? FirebaseFirestoreException)?.code in listOf(FirebaseFirestoreException.Code.NOT_FOUND,FirebaseFirestoreException.Code.PERMISSION_DENIED)) {
-                    root.collection("retiredNotes").document(ref.id).get(Source.SERVER).addOnSuccessListener{retired->
-                        if(!closed && retired.exists() && ref.id !in moves) {
-                            writes.remove(path);notes.removeAll{it.id==ref.id};persist()
-                            error="Общая заметка была перенесена или удалена другим участником.";drain()
-                        }
-                    }
+                if((failure as? FirebaseFirestoreException)?.code in listOf(FirebaseFirestoreException.Code.NOT_FOUND,FirebaseFirestoreException.Code.PERMISSION_DENIED,FirebaseFirestoreException.Code.INVALID_ARGUMENT)) {
+                    if(writes[path]?.optString("token")==token){rejected[path]=write;writes.remove(path)}
+                    error="Одна запись не принята сервером. Локальная копия сохранена; остальные заметки синхронизируются."
+                    persist()
                 }
             }}
             return
@@ -175,11 +202,12 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
         val move=moves.values.firstOrNull()?:return
         running=true
         val id=move.getString("id");val target=groups.find{it.id==move.getString("target")}
-        if(target==null){running=false;error="Группа назначения недоступна. Восстанови её из архива и повтори перенос.";return}
+        fun rejectMove(){rejected["moves/$id"]=JSONObject(move.toString()).put("path","moves/$id");moves.remove(id);running=false;persist()}
+        if(target==null){error="Группа назначения недоступна. Локальная заметка сохранена; повтори перенос после восстановления группы.";rejectMove();return}
         val original=noteValue(move.getJSONObject("snapshot"))
         val sourceRef=root.collection("notes").document(id)
         fun transfer(staged:Note) {
-            move.put("snapshot",staged.json());if(!persist()){running=false;return}
+            moves[id]=JSONObject(move.toString()).put("snapshot",staged.json());if(!persist(durable=true)){running=false;return}
             val outgoing=staged.copy(id=if(move.getBoolean("sourceShared"))id else move.getString("newId"),groupId=target.id,revision=move.getString("newId"),updatedAt=System.currentTimeMillis())
             db.runTransaction {tx->
                 val remote=if(move.getBoolean("sourceShared"))tx.get(sourceRef) else null
@@ -195,24 +223,36 @@ class NotesStore(context:Context,val viewer:Person,val session:CloudSession?=nul
             }.addOnSuccessListener {
                 if(closed)return@addOnSuccessListener
                 notes.removeAll{it.id==id||it.id==outgoing.id};notes.add(outgoing);moves.remove(id)
-                running=false;error="";lastSyncedAt=System.currentTimeMillis();persist();drain()
-            }.addOnFailureListener{if(!closed)failed(it)}
+                running=false;error=if(rejected.isEmpty())"" else "Есть запись, не принятая сервером. Локальная копия сохранена; остальные заметки синхронизируются.";lastSyncedAt=System.currentTimeMillis();persist();drain()
+            }.addOnFailureListener{if(!closed){failed(it);if((it as? FirebaseFirestoreException)?.code in listOf(FirebaseFirestoreException.Code.PERMISSION_DENIED,FirebaseFirestoreException.Code.NOT_FOUND,FirebaseFirestoreException.Code.INVALID_ARGUMENT))rejectMove()}}
         }
         if(move.getBoolean("sourceShared"))sourceRef.get(Source.SERVER).addOnSuccessListener{d->
             if(!closed)transfer(if(d.exists())noteValue(JSONObject(d.data!!)) else original)
         }.addOnFailureListener{if(!closed)failed(it)} else transfer(original)
     }
-    fun close(){closed=true;handler.removeCallbacks(flush);listeners.forEach{it.remove()};listeners.clear()}
+    fun close(){closed=true;handler.removeCallbacks(flush);listeners.forEach{it.remove()};listeners.clear();file.awaitWrites()}
 }
 
 /** Atomic replacement on both Android/Linux and the Windows JVM test host; never a partial JSON file. */
 internal class NoteFile(val baseFile:File) {
+    companion object {
+        private val writer=java.util.concurrent.Executors.newSingleThreadExecutor{r->Thread(r,"notes-storage").apply{isDaemon=true}}
+    }
     private val next=File(baseFile.path+".new")
-    fun readFully():ByteArray=baseFile.readBytes()
+    @Volatile private var lastFailure:Exception?=null
+    fun awaitWrites(){writer.submit{}.get()}
+    fun enqueue(bytes:()->ByteArray):java.util.concurrent.Future<*> = writer.submit {
+        try{writeNow(bytes());lastFailure=null}catch(e:Exception){lastFailure=e;throw e}
+    }
+    fun afterWrites(done:(Exception?)->Unit){writer.submit{done(lastFailure)}}
+    fun readFully():ByteArray {awaitWrites();return baseFile.readBytes()}
     fun write(bytes:ByteArray) {
+        enqueue{bytes}.get()
+    }
+    private fun writeNow(bytes:ByteArray) {
         baseFile.parentFile?.mkdirs()
         java.io.FileOutputStream(next).use{out->out.write(bytes);out.fd.sync()}
         java.nio.file.Files.move(next.toPath(),baseFile.toPath(),java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
-    fun delete(){baseFile.delete();next.delete()}
+    fun delete(){awaitWrites();baseFile.delete();next.delete()}
 }

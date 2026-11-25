@@ -14,6 +14,8 @@ data class InviteProposal(
     val start:String,
     val end:String,
     val note:String,
+    val titleFormat:String=PLAIN_TEXT_FORMAT,
+    val descriptionFormat:String=PLAIN_TEXT_FORMAT,
 ):Serializable
 
 object InviteWorkflow {
@@ -29,7 +31,8 @@ object InviteWorkflow {
 
     fun proposalError(entry:Entry,candidate:Entry):String? {
         if(candidate.title.isBlank() || candidate.title.length>100)return "Укажи название до 100 символов"
-        if(candidate.note.length>300)return "Комментарий должен быть не длиннее 300 символов"
+        if(candidate.note.length>10000)return "Комментарий должен быть не длиннее 10000 символов"
+        if(candidate.titleFormat !in listOf(PLAIN_TEXT_FORMAT,MARKDOWN_TEXT_FORMAT) || candidate.descriptionFormat !in listOf(PLAIN_TEXT_FORMAT,MARKDOWN_TEXT_FORMAT))return "Неизвестный формат текста"
         val date=candidate.date ?: return "Выбери точную дату"
         val last=candidate.lastDate ?: date
         if(last<date)return "Окончание не может быть раньше начала"
@@ -46,7 +49,7 @@ object InviteWorkflow {
         if(proposalId.isBlank() || proposalId.length>128 || '/' in proposalId || proposalId==expectedProposalId)return null
         if(proposalError(entry,candidate)!=null)return null
         val proposal=InviteProposal(proposalId,actor,candidate.title.trim(),candidate.date!!,
-            candidate.lastDate ?: candidate.date,candidate.start,candidate.end,candidate.note.trim())
+            candidate.lastDate ?: candidate.date,candidate.start,candidate.end,candidate.note.trim(),candidate.titleFormat,candidate.descriptionFormat)
         return entry.copy(proposal=proposal,proposalResponseId="")
     }
 
@@ -58,6 +61,7 @@ object InviteWorkflow {
             if(!accept)return entry.copy(proposal=null,proposalResponseId=proposal.id)
             val accepted=entry.copy(title=proposal.title,date=proposal.date,lastDate=proposal.lastDate,
                 week=mondayOf(proposal.date),start=proposal.start,end=proposal.end,note=proposal.note,
+                titleFormat=proposal.titleFormat,descriptionFormat=proposal.descriptionFormat,
                 invite=InviteState.ACCEPTED,resolvedDay=today,proposal=null,proposalResponseId=proposal.id)
             if(proposalError(entry,accepted)!=null)return null
             return accepted
@@ -68,5 +72,6 @@ object InviteWorkflow {
 
     fun candidate(entry:Entry):Entry=entry.proposal?.let{proposal->entry.copy(
         title=proposal.title,date=proposal.date,lastDate=proposal.lastDate,week=mondayOf(proposal.date),
-        start=proposal.start,end=proposal.end,note=proposal.note)} ?: entry
+        start=proposal.start,end=proposal.end,note=proposal.note,
+        titleFormat=proposal.titleFormat,descriptionFormat=proposal.descriptionFormat)} ?: entry
 }

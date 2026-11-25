@@ -92,20 +92,14 @@ import java.time.temporal.ChronoUnit
             }
             Text("У каждого профиля своё сохранённое демо. Это не вход в аккаунт; обмена данными пока нет.",style=MaterialTheme.typography.bodySmall)
         }
+        store.cloudSession?.let{AttachmentSettings(it)}
         Text("Оформление",style=MaterialTheme.typography.titleMedium)
         val winterPreview=BuildConfig.DEBUG && BuildConfig.WINTER_PREVIEW
-        if(!winterDesignEnabled() || winterPreview) {
-            val themes=listOf("system" to "Как на телефоне","light" to "Светлая","dark" to "Тёмная","winter" to "Зима вместе")
-            Column(Modifier.selectableGroup()) {
-                themes.forEach { (value,label)->
-                    val available=value!="winter" || winterPreview
-                    Row(Modifier.fillMaxWidth().selectable(selected=store.theme==value && available,enabled=available,role=Role.RadioButton,onClick={store.updateTheme(value)}),verticalAlignment=Alignment.CenterVertically){
-                        RadioButton(store.theme==value && available,null,enabled=available)
-                        Text(label,color=if(available)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha=.38f))
-                    }
-                }
-            }
-        } else Text("Зима вместе",style=MaterialTheme.typography.bodyMedium)
+        val remoteWinter=winterDesignEnabled() && !winterPreview
+        val themes=listOf("system" to "Как на телефоне","light" to "Светлая","dark" to "Тёмная","winter" to "Зима вместе")
+        SettingsDropdown("Тема",if(remoteWinter)"winter" else store.theme,
+            themes.map{(value,label)->SettingsDropdownOption(value,label,value!="winter" || winterPreview)},
+            enabled=!remoteWinter,onSelect=store::updateTheme)
         LocalWinterDesign.current?.takeIf{it.enabled}?.let { winter -> Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Падающий снег",Modifier.weight(1f));Switch(winter.snow,{winter.snow=it})} }
         HorizontalDivider()
         Text("Вход и уведомления",style=MaterialTheme.typography.titleMedium)

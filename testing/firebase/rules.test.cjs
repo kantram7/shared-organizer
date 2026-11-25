@@ -17,7 +17,7 @@ function entry(id,changes={}){return {id,title:'Plan',date:'2026-11-17',week:'20
 function envelope(data,actor='user-one',changes={}){return {type:'entry',owner:'user-one',readers:data.visibility==='SHARED'?uids:['user-one'],shared:data.visibility==='SHARED',data,deleted:false,revision:crypto.randomUUID(),updatedAt:serverTimestamp(),actor,...changes};}
 function projection(e){return !e.deleted && e.data.visibility==='BUSY'?{owner:e.owner,revision:e.revision,active:true,...Object.fromEntries(['date','lastDate','week','start','end','who','kind'].map(k=>[k,e.data[k]]))}:{owner:e.owner,revision:e.revision,active:false};}
 function write(client,id,e,{history=true,busy=true}={}){const b=writeBatch(client);b.set(ref(client,id),e);if(history)b.set(doc(client,root+'/records/'+id+'/revisions/'+e.revision),e);if(busy&&e.type==='entry')b.set(doc(client,root+'/busy/'+id),projection(e));return b.commit();}
-before(async()=>{env=await initializeTestEnvironment({projectId:'demo-shared-organizer',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync(path.resolve(process.env.KOTIKI_RULES_FILE || 'backend/firestore.rules'),'utf8')}});});
+before(async()=>{env=await initializeTestEnvironment({projectId:'demo-shared-organizer',firestore:{host:'127.0.0.1',port:Number(process.env.KOTIKI_FIRESTORE_PORT||8080),rules:fs.readFileSync(path.resolve(process.env.KOTIKI_RULES_FILE || 'backend/firestore.rules'),'utf8')}});});
 beforeEach(async()=>{await env.clearFirestore();await env.withSecurityRulesDisabled(async c=>{await setDoc(doc(c.firestore(),root),space);for(const uid of uids)await setDoc(doc(c.firestore(),'members/'+uid),{spaceId:'home'});});});
 after(async()=>{await env?.cleanup();});
 test('non-members and anonymous clients cannot read or write organizer data',async()=>{const a=db('user-one');await write(a,'one',envelope(entry('one')));for(const c of [db('outsider'),env.unauthenticatedContext().firestore()]){await assertFails(getDoc(ref(c,'one')));await assertFails(write(c,'other',envelope(entry('other'),'outsider')));await assertFails(getDoc(doc(c,root)));}});
@@ -61,6 +61,33 @@ test('anonymous delegates inherit only the configured role and preserve actual a
  await assertFails(getDoc(ref(b,'private-delegate')));
  assert.equal((await getDoc(ref(a,'private-delegate'))).data().actor,'anon-one');
  await assertFails(setDoc(doc(a,'members/anon-one'),{spaceId:'home',canonicalUid:'user-two'}));
+});
+test('delegation without expiry denies reads and writes',async()=>{
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'members/no-expiry'),{spaceId:'home',canonicalUid:'user-one'}));
+ await write(db('user-one'),'existing',envelope(entry('existing')));
+ const client=db('no-expiry');
+ await assertFails(getDoc(doc(client,root)));
+ await assertFails(getDoc(ref(client,'existing')));
+ await assertFails(write(client,'no-expiry',envelope(entry('no-expiry'),'no-expiry')));
+});
+test('delegation requires an explicit timestamp expiry',async()=>{
+ await delegate('invalid-expiry','user-one',Date.now()+3600000);
+ const client=db('invalid-expiry');
+ await assertFails(getDoc(doc(client,root)));
+ await assertFails(write(client,'invalid-expiry',envelope(entry('invalid-expiry'),'invalid-expiry')));
+});
+test('unexpired delegation still allows canonical reads and writes',async()=>{
+ await delegate('valid-expiry','user-one');const client=db('valid-expiry');
+ await assertSucceeds(getDoc(doc(client,root)));
+ await assertSucceeds(write(client,'valid-expiry',envelope(entry('valid-expiry'),'valid-expiry')));
+ await assertSucceeds(getDoc(ref(client,'valid-expiry')));
+});
+test('canonical legacy membership needs no expiry even with explicit canonicalUid',async()=>{
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'members/user-one'),{spaceId:'home',canonicalUid:'user-one'}));
+ const client=db('user-one');
+ await assertSucceeds(getDoc(doc(client,root)));
+ await assertSucceeds(write(client,'canonical-legacy',envelope(entry('canonical-legacy'))));
+ await assertSucceeds(getDoc(ref(client,'canonical-legacy')));
 });
 test('expired delegation denies reads and writes',async()=>{
  await delegate('expired','user-one',Timestamp.fromMillis(Date.now()-10000));
@@ -386,3 +413,109 @@ test('messages may be edited only by their author and deleted messages cannot be
 });
 
 async function seedLegacy(id,e){await env.withSecurityRulesDisabled(async c=>{await setDoc(ref(c.firestore(),id),e);});}
+
+test('036 reads are per canonical user and cannot impersonate the other participant',async()=>{
+ const a=db('user-one'),b=db('user-two');await chat(a);await setDoc(msgRef(a),message());
+ const read=(c,uid)=>doc(c,root+'/chats/general/messages/m1/reads/'+uid);
+ await assertSucceeds(setDoc(read(b,'user-two'),{readAt:serverTimestamp(),actor:'user-two'}));
+ await assertSucceeds(getDoc(read(a,'user-two')));
+ await assertFails(setDoc(read(a,'user-two'),{readAt:serverTimestamp(),actor:'user-one'}));
+ await assertFails(setDoc(read(b,'user-two'),{readAt:Timestamp.fromMillis(1),actor:'user-two'}));
+ await delegate('anon-two','user-two');await assertSucceeds(setDoc(read(db('anon-two'),'user-two'),{readAt:serverTimestamp(),actor:'anon-two'}));
+ await assertFails(setDoc(read(db('anon-two'),'anon-two'),{readAt:serverTimestamp(),actor:'anon-two'}));
+});
+test('036 reactions can only be modified by their canonical author',async()=>{
+ const a=db('user-one'),b=db('user-two');await chat(a);await setDoc(msgRef(a),message());
+ const reaction=(c,uid)=>doc(c,root+'/chats/general/messages/m1/reactions/'+uid);
+ await assertSucceeds(setDoc(reaction(b,'user-two'),{emoji:'🐾',updatedAt:serverTimestamp(),actor:'user-two'}));
+ await assertFails(setDoc(reaction(a,'user-two'),{emoji:'💜',updatedAt:serverTimestamp(),actor:'user-one'}));
+ await assertFails(setDoc(reaction(b,'user-two'),{emoji:'<script>',updatedAt:serverTimestamp(),actor:'user-two'}));
+ await assertFails(deleteDoc(reaction(a,'user-two')));await assertSucceeds(deleteDoc(reaction(b,'user-two')));
+});
+test('036 rich messages replies and edited marker preserve backward compatibility',async()=>{
+ const a=db('user-one');await chat(a);await setDoc(msgRef(a),message());
+ await assertSucceeds(setDoc(msgRef(a,'reply'),{...message(),format:'markdown-v1',replyTo:'m1',attachmentIds:[]}));
+ await assertFails(setDoc(msgRef(a,'missing'),{...message(),replyTo:'not-here'}));
+ await assertFails(setDoc(msgRef(a,'html'),{...message(),format:'html'}));
+ const saved=(await getDoc(msgRef(a,'reply'))).data();
+ await assertSucceeds(setDoc(msgRef(a,'reply'),{...saved,text:'**Edited**',editedAt:serverTimestamp()}));
+ await assertFails(setDoc(msgRef(a,'reply'),{...saved,text:'Spoof',editedAt:Timestamp.fromMillis(1)}));
+ await assertFails(setDoc(msgRef(a,'reply'),{...saved,replyTo:'changed'}));
+});
+test('036 only backend may publish attachment manifests and nonempty attachment messages',async()=>{
+ const a=db('user-one'),b=db('user-two');await chat(a);await setDoc(msgRef(a),message());
+ const manifest={owner:'user-one',actor:'user-one',chatId:'general',messageId:'m1',state:'ready',name:'private.txt'};
+ const attachment=(c)=>doc(c,root+'/attachments/file1');
+ await assertFails(setDoc(attachment(a),manifest));
+ await assertFails(setDoc(msgRef(a,'with-file'),{...message(),attachmentIds:['file1']}));
+ await env.withSecurityRulesDisabled(c=>setDoc(attachment(c.firestore()),manifest));
+ await assertSucceeds(getDoc(attachment(b)));await assertFails(getDoc(attachment(db('outsider'))));
+ await setDoc(msgRef(a),{...(await getDoc(msgRef(a))).data(),deleted:true,text:''});
+ await assertFails(getDoc(attachment(b)));
+});
+test('036 removed parent revokes receipts reactions and attachment metadata',async()=>{
+ const a=db('user-one'),b=db('user-two');const d={id:'theme',name:'Theme',shared:true,owner:'USER_1',updatedAt:1,items:[{id:'item',title:'Plan'}],itemIds:['item']};
+ await write(a,'plan_theme',envelope(d,'user-one',{type:'plan',shared:true,readers:uids}));await chat(a,'plan_theme_item','theme','item');await setDoc(msgRef(a,'m1','plan_theme_item'),message());
+ const read=doc(b,root+'/chats/plan_theme_item/messages/m1/reads/user-two');await setDoc(read,{actor:'user-two',readAt:serverTimestamp()});
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),root+'/attachments/file1'),{owner:'user-one',chatId:'plan_theme_item',messageId:'m1',state:'ready'}));
+ await write(a,'plan_theme',envelope({...d,items:[],itemIds:[]},'user-one',{type:'plan',shared:true,readers:uids}));
+ await assertFails(getDoc(read));await assertFails(getDoc(doc(b,root+'/attachments/file1')));
+ await assertFails(setDoc(doc(b,root+'/chats/plan_theme_item/messages/m1/reactions/user-two'),{emoji:'👍',actor:'user-two',updatedAt:serverTimestamp()}));
+});
+test('036 notification history is own-only and clients cannot forge or reset it',async()=>{
+ const history=(c,uid)=>doc(c,root+'/notifications/'+uid+'/items/event1');
+ await env.withSecurityRulesDisabled(c=>setDoc(history(c.firestore(),'user-one'),{read:false,kind:'chat',body:'Neutral'}));
+ await assertSucceeds(getDoc(history(db('user-one'),'user-one')));await assertFails(getDoc(history(db('user-two'),'user-one')));
+ await assertSucceeds(setDoc(history(db('user-one'),'user-one'),{read:true,kind:'chat',body:'Neutral'}));
+ await assertFails(setDoc(history(db('user-one'),'user-one'),{read:false,kind:'chat',body:'Neutral'}));
+ await assertFails(setDoc(history(db('user-two'),'user-two'),{read:false,kind:'chat',body:'Forged'}));
+ await assertFails(setDoc(doc(db('user-one'),'system/pushDelivery'),{enabled:true}));
+});
+
+
+test('036 seen entry markers belong to canonical user and require readable source',async()=>{
+ const a=db('user-one'),b=db('user-two');await write(a,'entry_public',envelope(entry('public')));
+ const seen=(c,u,id)=>doc(c,root+'/members/'+u+'/seenEntries/'+id);
+ await assertSucceeds(setDoc(seen(b,'user-two','public'),{actor:'user-two',seenAt:serverTimestamp()}));
+ await assertFails(setDoc(seen(a,'user-two','public'),{actor:'user-one',seenAt:serverTimestamp()}));
+ await write(a,'entry_secret',envelope(entry('secret',{visibility:'PRIVATE'})));
+ await assertFails(setDoc(seen(b,'user-two','secret'),{actor:'user-two',seenAt:serverTimestamp()}));
+ await assertFails(getDoc(seen(a,'user-two','public')));
+});
+test('036 markdown entry descriptions support message conversion without truncation',async()=>{
+ const a=db('user-one');
+ await assertSucceeds(write(a,'entry_long',envelope(entry('long',{note:'x'.repeat(10000),descriptionFormat:'markdown-v1',titleFormat:'plain-v1'}))));
+ await assertFails(write(a,'entry_long',envelope(entry('long',{note:'x'.repeat(10001),descriptionFormat:'markdown-v1'}))));
+});
+
+
+test('proposal acceptance preserves approved Markdown formats and rejects substituted formats',async()=>{
+ const {a,b,accepted}=await acceptedMeeting('format-meeting');
+ const p=proposal('format-offer','USER_2',{title:'**Moved meeting**',note:'A <u>formatted note</u>',titleFormat:'markdown-v1',descriptionFormat:'markdown-v1'});
+ const offered={...accepted,proposal:p};
+ await assertSucceeds(write(b,'format-meeting',envelope(offered,'user-two')));
+ const answered={...proposalResponse(offered),titleFormat:p.titleFormat,descriptionFormat:p.descriptionFormat};
+ await assertFails(write(a,'format-meeting',envelope({...answered,titleFormat:'plain-v1'})));
+ await assertFails(write(a,'format-meeting',envelope({...answered,descriptionFormat:'plain-v1'})));
+ await assertSucceeds(write(a,'format-meeting',envelope(answered)));
+ const saved=(await getDoc(ref(a,'format-meeting'))).data().data;
+ assert.equal(saved.titleFormat,'markdown-v1');assert.equal(saved.descriptionFormat,'markdown-v1');
+});
+
+test('proposal formats reject unknown values and cannot mutate base formats before acceptance',async()=>{
+ const {a,b,accepted}=await acceptedMeeting('invalid-format-meeting');
+ for(const field of ['titleFormat','descriptionFormat']){
+  await assertFails(write(b,'invalid-format-meeting',envelope({...accepted,proposal:proposal('invalid-format','USER_2',{[field]:'html-v9'})},'user-two')));
+ }
+ await assertFails(write(b,'invalid-format-meeting',envelope({...accepted,titleFormat:'markdown-v1',proposal:proposal('valid-format','USER_2',{titleFormat:'markdown-v1'})},'user-two')));
+ const offered={...accepted,proposal:proposal('legacy-format')};
+ await assertSucceeds(write(b,'invalid-format-meeting',envelope(offered,'user-two')));
+ await assertFails(write(a,'invalid-format-meeting',envelope({...proposalResponse(offered),titleFormat:'markdown-v1'})));
+ await assertSucceeds(write(a,'invalid-format-meeting',envelope(proposalResponse(offered))));
+});
+
+test('proposal permits the entry description limit and rejects oversized text',async()=>{
+ const {b,accepted}=await acceptedMeeting('long-description');
+ await assertFails(write(b,'long-description',envelope({...accepted,proposal:proposal('too-long','USER_2',{note:'n'.repeat(10001)})},'user-two')));
+ await assertSucceeds(write(b,'long-description',envelope({...accepted,proposal:proposal('long-enough','USER_2',{note:'n'.repeat(10000)})},'user-two')));
+});

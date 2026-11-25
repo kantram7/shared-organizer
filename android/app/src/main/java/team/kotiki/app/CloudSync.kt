@@ -21,6 +21,7 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
     private var busyPending=false
     fun start() {
         store.onCloudSave=::publish
+        store.onCloudDelete={id->records[id]?.takeIf{!it.deleted && it.owner==session.uid}?.let{writeChanges(listOf(it.copy(deleted=true)))}}
         listeners+=root.collection("records").whereArrayContains("readers",session.uid)
             .addSnapshotListener(MetadataChanges.INCLUDE){snapshot,error->
                 if(closed)return@addSnapshotListener
@@ -71,23 +72,23 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
         if(closed || !store.cloudReady)return
         val next=content.records(session).filterNot{it.data["visibility"]=="BUSY" && it.owner!=session.uid}.associateBy{it.id}
         val changes=next.values.filter{it!=records[it.id]}.toMutableList()
-        records.values.filter{!it.deleted && it.id !in next}.forEach{changes+=it.copy(deleted=true)}
+        // Deletion is explicit: a partial/stale UI snapshot must never delete unrelated cloud records.
+        writeChanges(changes)
+    }
+    private fun writeChanges(changes:List<CloudRecord>) {
         changes.forEach{record->
             val revision=newId()
             val payload=record.envelope(session,revision,FieldValue.serverTimestamp())
             val ref=root.collection("records").document(record.id)
             val batch=db.batch().set(ref,payload).set(ref.collection("revisions").document(revision),payload)
             if(record.type=="entry")batch.set(root.collection("busy").document(record.id),record.projection(revision))
-            if(record.type=="entry")batch.set(root.collection("pushQueue").document(revision),mapOf(
-                "kind" to "record","recordId" to record.id,"revision" to revision,"chatId" to "","messageId" to "",
-                "actor" to session.authUid,"createdAt" to FieldValue.serverTimestamp()))
             records[record.id]=record
             inFlight++;store.cloudError="";status()
             batch.commit().addOnCompleteListener{task->
                 if(closed)return@addOnCompleteListener
                 inFlight--;if(!task.isSuccessful){store.keepFailedCloudChange(record);fail(task.exception)}
                 status()
-                if(task.isSuccessful)AndroidPush.wake(store.appContext)
+
             }
         }
     }
@@ -110,5 +111,5 @@ class CloudSync(private val store:DemoStore,private val session:CloudSession,
         }
         store.cloudStatus=store.cloudError
     }
-    fun close(){closed=true;listeners.forEach{it.remove()};store.onCloudSave=null}
+    fun close(){closed=true;listeners.forEach{it.remove()};store.onCloudSave=null;store.onCloudDelete=null}
 }

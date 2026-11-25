@@ -37,6 +37,15 @@ internal fun reminderInstant(entry: Entry, viewer: Person, preference: EntryRemi
 }
 internal fun reminderIdentity(authUid: String, entryId: String): String = calendarHash("reminder-v1\u0000$authUid\u0000$entryId")
 
+/** Persisted alarm state alone cannot authorize a notification after logout or account rebinding. */
+internal fun reminderProfileMatches(authUid:String,snapshot:JSONObject,currentAuthUid:String?,binding:PushBinding?):Boolean {
+    val viewer=snapshot.optString("viewer")
+    if(authUid=="demo/"+viewer && viewer in setOf("USER_1","USER_2"))return true
+    if(currentAuthUid!=authUid || binding==null || binding.authUid!=authUid)return false
+    return snapshot.optString("canonicalUid").isNotBlank() && snapshot.optString("canonicalUid")==binding.canonicalUid &&
+        snapshot.optString("spaceId").isNotBlank() && snapshot.optString("spaceId")==binding.spaceId && viewer==binding.viewer.name
+}
+
 internal class ReminderPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("entry_reminders_v1", Context.MODE_PRIVATE)
     private fun profile(uid: String) = "profile_" + calendarHash(uid)
@@ -82,13 +91,16 @@ object LocalReminders {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Напоминания о делах и событиях",NotificationManager.IMPORTANCE_DEFAULT).apply{setShowBadge(true)})
     }
     /** Call after every cloud/local snapshot and preference change. Proposals must pass the still-accepted event until confirmation. */
-    fun sync(context: Context, authUid: String, entries: List<Entry>, viewer: Person) = synchronized(lock) {
+    internal fun sync(context: Context, authUid: String, entries: List<Entry>, viewer: Person, identity:PushBinding?=AndroidPush.binding(context)) = synchronized(lock) {
         if(authUid.isBlank()) return@synchronized
         val preferences=ReminderPreferences(context)
         val old=preferences.snapshot(authUid)
         val rows=JSONArray()
         entries.filter { reminderEligible(it,viewer) }.forEach { rows.put(encode(it)) }
         val next=JSONObject().put("viewer",viewer.name).put("entries",rows)
+        identity?.takeIf{it.authUid==authUid}?.let{
+            next.put("canonicalUid",it.canonicalUid).put("spaceId",it.spaceId)
+        }
         // Persist before scheduling so a stale PendingIntent can always validate the current snapshot.
         preferences.save(authUid,next)
         val current=decodeRows(next).associateBy { it.id }
@@ -139,6 +151,8 @@ object LocalReminders {
         val preferences=ReminderPreferences(context)
         if(target.authUid !in preferences.profiles()) return@synchronized
         val snapshot=preferences.snapshot(target.authUid) ?: return@synchronized
+        val currentUid=if(AndroidPush.ensureFirebase(context))com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid else null
+        if(!reminderProfileMatches(target.authUid,snapshot,currentUid,AndroidPush.binding(context)))return@synchronized
         val viewer=runCatching { Person.valueOf(snapshot.getString("viewer")) }.getOrNull() ?: return@synchronized
         val entry=decodeRows(snapshot).find { it.id==target.entryId } ?: return@synchronized
         val due=reminderInstant(entry,viewer,preferences.preference(target.authUid,entry.id),ZoneId.systemDefault())?.toEpochMilli() ?: return@synchronized
@@ -161,13 +175,13 @@ object LocalReminders {
         val pending=PendingIntent.getActivity(context,0,launch,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val public=NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw).setContentTitle("Напоминание")
             .setContentText("Открой приложение, чтобы посмотреть подробности").build()
-        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw).setContentTitle(entry.title)
+        return NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_notification_paw).setContentTitle(richPlainText(entry.title,entry.titleFormat))
             .setContentText(entry.date?.let(::fullDayLabel).orEmpty() + if(entry.start.isNotBlank()) " · ${entry.start}" else "")
             .setCategory(NotificationCompat.CATEGORY_REMINDER).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public).setContentIntent(pending).setAutoCancel(true)
             .setNumber(1).addExtras(NotificationReadState.extras(uid,NotificationReadState.entry(entry.id))).build()
     }
-    private fun encode(entry: Entry) = JSONObject().put("id",entry.id).put("title",entry.title).put("date",entry.date.toString())
+    private fun encode(entry: Entry) = JSONObject().put("id",entry.id).put("title",richPlainText(entry.title,entry.titleFormat)).put("date",entry.date.toString())
         .put("start",entry.start).put("end",entry.end).put("who",entry.who.name).put("owner",entry.owner.name)
         .put("visibility",entry.visibility.name).put("kind",entry.kind.name).put("invite",entry.invite.name).put("done",entry.done)
     private fun decodeRows(snapshot: JSONObject?): List<Entry> {

@@ -3,6 +3,12 @@ package team.kotiki.app
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.text.Selection
+import android.text.Spannable
+import android.text.style.URLSpan
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +34,14 @@ class Interaction035Test {
     @get:Rule val ui=createAndroidComposeRule<MainActivity>()
     private val context get()=ApplicationProvider.getApplicationContext<Context>()
     private fun content(block:@Composable ()->Unit){ui.activityRule.scenario.onActivity{it.setContent{KotikiTheme("light",content=block)}}}
+    private fun messageView(text:String):TextView {
+        fun find(view:View):TextView? {
+            if(view is TextView && view.text.toString()==text)return view
+            if(view is ViewGroup)for(i in 0 until view.childCount)find(view.getChildAt(i))?.let{return it}
+            return null
+        }
+        return requireNotNull(find(ui.activity.window.decorView)){"Native message TextView not found: $text"}
+    }
     private fun message(id:String,time:Long=10,sender:String="other",deleted:Boolean=false,pending:Boolean=false)=
         ChatMessage(id,"general",sender,sender,Person.USER_2,"https://example.com · текст",time,deleted,pending)
 
@@ -42,10 +56,28 @@ class Interaction035Test {
         assertThrows(IllegalArgumentException::class.java){browserIntent(context,"javascript:alert(1)")}
     }
 
-    @Test fun incomingMessageCanBeCopiedFromLongPressButCannotBeDeleted() {
+    @Test fun incomingMessageUsesTextSelectionAndGearCopyWithoutDelete() {
         val message=message("incoming")
         content{MessageBubble(message,"User 2",false,{fail("Cannot delete incoming message")})}
-        ui.onNodeWithText(message.text).performTouchInput{longClick()}
+        ui.runOnIdle {
+            val view=messageView(message.text)
+            assertTrue("Message must support native word selection",view.isTextSelectable)
+            assertTrue("Long press must remain available for selection",view.isLongClickable)
+            val selectable=view.text as Spannable
+            val links=selectable.getSpans(0,selectable.length,URLSpan::class.java)
+            assertEquals(listOf("https://example.com"),links.map{it.url})
+            // Exercise the native selection/copy action, not Compose text semantics.
+            view.requestFocus()
+            val start=message.text.indexOf("текст")
+            Selection.setSelection(selectable,start,start+"текст".length)
+            assertEquals(start,view.selectionStart)
+            assertEquals(start+"текст".length,view.selectionEnd)
+            assertTrue(view.onTextContextMenuItem(android.R.id.copy))
+            assertEquals("текст",context.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())
+            view.clearFocus()
+        }
+        ui.onNodeWithText("Удалить").assertDoesNotExist()
+        ui.onNodeWithContentDescription("Действия: сообщение").performClick()
         ui.onNodeWithText("Удалить").assertDoesNotExist()
         ui.onNodeWithText("Копировать").performClick()
         ui.runOnIdle{assertEquals(message.text,context.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())}

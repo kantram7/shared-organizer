@@ -3,7 +3,7 @@ const encoder = new TextEncoder();
 const MAX_FETCHES = 45, BATCH_SIZE = 3, MAX_DEVICES = 8;
 const DAY = 86_400_000;
 // Delivery needs routing and access metadata, never message text, event titles or notes.
-const READ_FIELDS = ['uids', 'roles', 'spaceId', 'canonicalUid', 'expiresAt', 'type', 'shared', 'deleted', 'revision', 'actor', 'collectionId', 'itemId', 'data.id', 'data.visibility', 'data.who', 'data.kind', 'data.invite', 'data.isGathering', 'data.proposal.id', 'data.itemIds'];
+const READ_FIELDS = ['createdAt', 'updatedAt', 'uids', 'roles', 'spaceId', 'canonicalUid', 'expiresAt', 'type', 'shared', 'deleted', 'revision', 'actor', 'collectionId', 'itemId', 'data.id', 'data.visibility', 'data.who', 'data.kind', 'data.invite', 'data.isGathering', 'data.proposal.id', 'data.itemIds'];
 let googleToken;
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 const unb64 = value => Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/').padEnd(Math.ceil(value.length / 4) * 4, '=')), c => c.charCodeAt(0));
@@ -130,6 +130,13 @@ function validEvent(event, now) {
       event.kind === 'chat' && validId(event.chatId) && validId(event.messageId) && event.id === event.messageId);
 }
 
+/** Migration uses immutable server source timestamps, never current record updatedAt or queue arrival. */
+export function sourceDeliveryOwner(event, source, cutoverAt) {
+  if (!cutoverAt) return 'legacy';
+  const boundary=Date.parse(cutoverAt), stamp=Date.parse(event.kind==='record'?source?.updatedAt:source?.createdAt);
+  if (!Number.isFinite(boundary)||!Number.isFinite(stamp)) return 'unknown';
+  return stamp < boundary ? 'legacy' : 'functions';
+}
 /** Dependencies are injectable for unit tests; production always uses bounded Google REST transport. */
 export async function deliver(env, dependencies = {}) {
   if (!validId(env.FIREBASE_PROJECT) || !validId(env.SPACE_ID)) throw Error('Invalid project configuration');
@@ -174,6 +181,15 @@ export async function deliver(env, dependencies = {}) {
       budget.check();
       if (!validId(event.id)) { stats.deferred = true; continue; }
       if (!validEvent(event, now()) || now() - Date.parse(event.createdAt) > DAY) { await db.remove(root + '/pushQueue/' + event.id); stats.processed++; continue; }
+      if(env.FUNCTIONS_CUTOVER_AT){
+        const original=event.kind==='record'
+          ? await get(root+'/records/'+event.recordId+'/revisions/'+event.revision)
+          : await get(root+'/chats/'+event.chatId+'/messages/'+event.messageId);
+        const owner=sourceDeliveryOwner(event,original,env.FUNCTIONS_CUTOVER_AT);
+        if(owner==='unknown'){stats.deferred=true;continue;}
+        // The new sender already owns this original-document trigger. Remove only its obsolete queue duplicate.
+        if(owner==='functions'){await db.remove(root+'/pushQueue/'+event.id);stats.processed++;continue;}
+      }
       const actor = await member(event.actor);
       if (!activeMember(actor, space, now())) { await db.remove(root + '/pushQueue/' + event.id); stats.processed++; continue; }
       const canonical = actor.canonicalUid || event.actor;

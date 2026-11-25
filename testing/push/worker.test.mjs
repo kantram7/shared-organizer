@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 const moduleUrl = process.env.WORKER_UNDER_TEST ? pathToFileURL(process.env.WORKER_UNDER_TEST) : new URL('../../backend/push/worker.mjs', import.meta.url);
-const { default: worker, deliver, notificationFor, activeMember, pageDocuments, FetchBudget, BudgetExceeded, fetchJson, batchDocuments } = await import(moduleUrl);
+const { default: worker, deliver, notificationFor, activeMember, pageDocuments, FetchBudget, BudgetExceeded, fetchJson, batchDocuments, sourceDeliveryOwner } = await import(moduleUrl);
 const NOW = Date.parse('2026-11-17T12:00:00Z');
 const env = { FIREBASE_PROJECT: 'project-test', SPACE_ID: 'space-test' };
 const root = 'spaces/space-test';
@@ -22,7 +22,7 @@ test('transport uses Workers-supported manual redirect mode and refuses redirect
   assert.deepEqual(result.data, {ok:true});
 });
 const entry = (change = {}) => ({ type: 'entry', shared: true, deleted: false, revision: 'revision1', data: { id: 'entry1', visibility: 'SHARED', who: 'BOTH', kind: 'TASK', invite: 'NONE', title: 'Private title must not enter payload', ...change } });
-function setup({ record = entry(), eventChange = {}, deviceNext = '', queueNext = '', limit = 45, batched = false } = {}) {
+function setup({ record = entry(), eventChange = {}, deviceNext = '', queueNext = '', limit = 45, batched = false, cutoverAt } = {}) {
   const budget = new FetchBudget({ now: () => NOW, limit });
   const documents = new Map([
     [root, { uids: ['u1', 'u2'], roles: { u1: 'USER_1', u2: 'USER_2' } }],
@@ -40,7 +40,7 @@ function setup({ record = entry(), eventChange = {}, deviceNext = '', queueNext 
   if (batched) db.getMany = async paths => { budget.take(); requests.push('batchGet'); return new Map([...new Set(paths)].map(path => { if (path === failedGetPath) throw Error('Simulated unavailable provider'); return [path, documents.has(path) ? structuredClone(documents.get(path)) : null]; })); };
   let resultFor = () => 'sent';
   const send = async (token, data) => { budget.take(); sent.push({ token, data }); return resultFor(token, data); };
-  return { documents, events, devices, requests, removed, sent, budget, setResult: fn => { resultFor = fn; }, setGetFailure: path => { failedGetPath = path; }, run: () => deliver(env, { db, send, budget, now: () => NOW }) };
+  return { documents, events, devices, requests, removed, sent, budget, setResult: fn => { resultFor = fn; }, setGetFailure: path => { failedGetPath = path; }, run: () => deliver({...env,FUNCTIONS_CUTOVER_AT:cutoverAt}, { db, send, budget, now: () => NOW }) };
 }
 
 test('HTTP exposes only health, never wake or ID-token authorization', async () => {
@@ -173,4 +173,26 @@ test('gathering metadata selects the dedicated Android invitation channel withou
  const notice=state.sent.find(x=>x.data.authUid==='u2').data;
  assert.equal(notice.kind,'invite');assert.equal(notice.gathering,'true');
  assert.ok(!JSON.stringify(notice).includes('Private title'));
+});
+
+test('handover predicates are disjoint at the exact immutable server timestamp',async()=>{
+ const {deliveryPolicy}=await import('../../backend/functions/core.mjs');const boundary=new Date(NOW).toISOString();
+ for(const offset of [-1,0,1]){const stamp=new Date(NOW+offset).toISOString();for(const kind of ['record','chat']){
+  const owner=sourceDeliveryOwner({kind},kind==='record'?{updatedAt:stamp}:{createdAt:stamp},boundary);
+  const next=deliveryPolicy({actor:'u1',createdAt:stamp},{enabled:true,cutoverAt:boundary},NOW+1000);
+  assert.equal(owner==='functions',!!next);assert.notEqual(owner==='legacy',!!next);
+ }}
+ assert.equal(sourceDeliveryOwner({kind:'record'},{},boundary),'unknown');assert.equal(sourceDeliveryOwner({kind:'chat'},{createdAt:boundary},'bad'),'unknown');
+});
+test('old immutable revision remains legacy even when mutable current timestamp is after boundary',async()=>{
+ const state=setup({cutoverAt:new Date(NOW).toISOString()});state.documents.get(root+'/records/entry_entry1').updatedAt=new Date(NOW+1000).toISOString();
+ state.documents.get(root+'/records/entry_entry1/revisions/revision1').updatedAt=new Date(NOW-1).toISOString();
+ await state.run();assert.equal(state.sent.length,2);
+});
+test('post-boundary duplicate legacy queue is acknowledged without any old FCM send',async()=>{
+ const state=setup({cutoverAt:new Date(NOW).toISOString()});state.documents.get(root+'/records/entry_entry1/revisions/revision1').updatedAt=new Date(NOW).toISOString();
+ await state.run();assert.equal(state.sent.length,0);assert.deepEqual(state.removed,[root+'/pushQueue/revision1']);
+});
+test('missing authoritative handover timestamp is retained, never guessed from queue time',async()=>{
+ const state=setup({cutoverAt:new Date(NOW).toISOString()});const result=await state.run();assert.equal(state.sent.length,0);assert.equal(state.removed.length,0);assert.equal(result.deferred,true);
 });

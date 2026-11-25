@@ -1,3 +1,4 @@
+throw new Error('Cloudflare push setup retired; Firebase Functions now own delivery. Do not recreate legacy keys.');
 const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module');
 const req=createRequire(path.join(process.env.KOTIKI_FIREBASE_TOOLS,'package.json'));
 const auth=req('firebase-tools/lib/auth'),api=req('firebase-tools/lib/apiv2'),{requireAuth}=req('firebase-tools/lib/requireAuth'),{ensure}=req('firebase-tools/lib/ensureApiEnabled');

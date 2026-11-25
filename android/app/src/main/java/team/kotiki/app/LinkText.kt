@@ -11,6 +11,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import android.text.style.*
+import android.graphics.Typeface
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -47,13 +51,28 @@ internal fun openWebLink(context:Context,url:String) {
 
 @Composable fun LinkText(text:String,modifier:Modifier=Modifier,color:Color=Color.Unspecified,
     fontSize:TextUnit=TextUnit.Unspecified,fontWeight:FontWeight?=null,textDecoration:TextDecoration?=null,
-    style:TextStyle=LocalTextStyle.current,maxLines:Int=Int.MAX_VALUE,overflow:TextOverflow=TextOverflow.Clip) {
+    style:TextStyle=LocalTextStyle.current,maxLines:Int=Int.MAX_VALUE,overflow:TextOverflow=TextOverflow.Clip,format:String=PLAIN_TEXT_FORMAT) {
     val context=LocalContext.current
+    val internalLink=LocalOpenInternalLink.current
     val linkColor=MaterialTheme.colorScheme.primary
-    val value=remember(text,linkColor,context){buildAnnotatedString {
-        append(text)
-        webLinks(text).forEach{link->addLink(LinkAnnotation.Url(link.url,
-            TextLinkStyles(SpanStyle(color=linkColor,textDecoration=TextDecoration.Underline))) {openWebLink(context,link.url)},link.start,link.end)}
+    val value=remember(text,format,linkColor,context,internalLink){buildAnnotatedString {
+        val rich=RichTextCodec.decode(text,format)
+        append(rich.toString())
+        rich.getSpans(0,rich.length,CharacterStyle::class.java).forEach{span->
+            val style=when(span){
+                is StyleSpan->SpanStyle(fontWeight=if(span.style and Typeface.BOLD!=0)FontWeight.Bold else null,fontStyle=if(span.style and Typeface.ITALIC!=0)FontStyle.Italic else null)
+                is UnderlineSpan->SpanStyle(textDecoration=TextDecoration.Underline)
+                is StrikethroughSpan->SpanStyle(textDecoration=TextDecoration.LineThrough)
+                is RelativeSizeSpan->SpanStyle(fontSize=span.sizeChange.em)
+                else->null
+            }
+            if(style!=null)addStyle(style,rich.getSpanStart(span),rich.getSpanEnd(span))
+        }
+        val explicit=rich.getSpans(0,rich.length,URLSpan::class.java).map{WebLink(rich.getSpanStart(it),rich.getSpanEnd(it),it.url)}
+        val links=explicit+webLinks(rich.toString()).filter{candidate->explicit.none{candidate.start<it.end&&candidate.end>it.start}}+
+            Regex("kotiki://[^\\s<>]+").findAll(rich).map{WebLink(it.range.first,it.range.last+1,it.value)}.toList()
+        links.filter{it.end>it.start}.forEach{link->addLink(LinkAnnotation.Url(link.url,
+            TextLinkStyles(SpanStyle(color=linkColor,textDecoration=TextDecoration.Underline))) {if(link.url.startsWith("kotiki://"))internalLink?.invoke(link.url)else openWebLink(context,link.url)},link.start,link.end)}
     }}
     Text(value,modifier,color=color,fontSize=fontSize,fontWeight=fontWeight,textDecoration=textDecoration,style=style,maxLines=maxLines,overflow=overflow)
 }

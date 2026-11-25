@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class ReadCursor(val time:Long=0,val ids:Set<String> = emptySet(),val seen:Set<String> = emptySet()) {
-    fun unread(message:ChatMessage,viewer:String)=message.sender!=viewer && !message.deleted && !message.pending && message.id !in seen &&
+    fun unread(message:ChatMessage,viewer:String)=message.sender!=viewer && !message.readByMe && !message.deleted && !message.pending && message.id !in seen &&
         (message.time>time || message.time==time && message.id !in ids)
     fun advance(visible:List<ChatMessage>,viewer:String,known:List<ChatMessage> = visible):ReadCursor {
         val read=seen+visible.filter{it.sender!=viewer && !it.pending}.map{it.id}
@@ -32,10 +32,13 @@ internal class ChatUnreadState(context:Context,private val viewer:String,profile
     var count by mutableIntStateOf(0);private set
     fun receive(snapshot:ChatSnapshot){
         messages=snapshot.messages
+        val acknowledged=messages.filter{it.readByMe}
+        if(acknowledged.isNotEmpty())save(cursor.advance(acknowledged,viewer,messages))
         complete=!snapshot.loading && !snapshot.fromCache && snapshot.error==null
         if(complete)save(cursor.advance(emptyList(),viewer,messages))
         recount()
     }
+    fun isUnread(message:ChatMessage)=cursor.unread(message,viewer)
     private fun recount(){count=messages.count{cursor.unread(it,viewer)}}
     fun readThrough(visible:List<ChatMessage>) {
         // The visible chat can load before the complete unread query (or while offline).

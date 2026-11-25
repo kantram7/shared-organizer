@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
                 }
             })
             content()
+            if(winter)WinterSnow(Modifier.matchParentSize())
         }
     }
 }

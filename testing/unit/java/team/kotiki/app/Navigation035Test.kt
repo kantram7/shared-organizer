@@ -22,19 +22,19 @@ import org.robolectric.annotation.Config
 class Navigation035Test {
     @get:Rule val ui=createAndroidComposeRule<MainActivity>()
     private fun content(body:@Composable ()->Unit){ui.activityRule.scenario.onActivity{a->a.setContent{KotikiTheme("light"){body()}}}}
-    @Test fun allCompactItemsHaveSameHeightAndLabelOffset() {
+    @Test fun compactItemsKeepSameLabelOffsetWithTwoLineGathering() {
         content{Column(Modifier.width(64.dp).verticalScroll(rememberScrollState())){
             Section.entries.forEach{section->Box(Modifier.testTag(section.name)){NavigationItem(section,section==Section.SETTINGS,false){}}}
             Box(Modifier.testTag("gather")){GatherCatsButton(false){}}
         }}
         val gathering=ui.onNodeWithTag("gather").getUnclippedBoundsInRoot()
-        val gatherText=ui.onNodeWithText("Общий сбор",useUnmergedTree=true).getUnclippedBoundsInRoot()
+        val gatherText=ui.onNodeWithText("Собрать\nкотиков",useUnmergedTree=true).getUnclippedBoundsInRoot()
         println("NAV gathering=$gathering text=$gatherText density=${ui.activity.resources.displayMetrics.density} fontScale=${ui.activity.resources.configuration.fontScale}")
         Section.entries.forEach {section->
             val bounds=ui.onNodeWithTag(section.name).getUnclippedBoundsInRoot()
             val text=ui.onNodeWithText(section.label,useUnmergedTree=true).getUnclippedBoundsInRoot()
             println("NAV ${section.name}: $bounds text=$text")
-            assertEquals(section.name,(gathering.bottom-gathering.top).value,(bounds.bottom-bounds.top).value,.5f)
+            assertTrue(section.name,(gathering.bottom-gathering.top).value >= (bounds.bottom-bounds.top).value)
             assertEquals(section.name,(gatherText.top-gathering.top).value,(text.top-bounds.top).value,.5f)
         }
     }
@@ -51,7 +51,8 @@ class Navigation035Test {
     @Test fun winterIsVisibleButUnavailableInPhoneBuild() {
         val store=DemoStore(ui.activity);store.updateTheme("light")
         content{SettingsScreen(store,{})}
-        ui.onNodeWithText("Зима вместе").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithContentDescription("Тема: Светлая").performScrollTo().performClick()
+        ui.onNodeWithText("Зима вместе").assertIsDisplayed()
         if(!BuildConfig.WINTER_PREVIEW){
             ui.onNode(hasText("Зима вместе") and hasClickAction()).assertIsNotEnabled().performClick()
             ui.runOnIdle{assertEquals("light",store.theme)}

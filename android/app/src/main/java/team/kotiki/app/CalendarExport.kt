@@ -75,7 +75,7 @@ internal fun calendarTimes(entry: Entry, zone: ZoneId): CalendarTimes {
     val first = entry.date ?: throw CalendarExportException("Сначала выбери день события.")
     val last = entry.lastDate ?: first
     if (last < first) throw CalendarExportException("Дата окончания раньше начала.")
-    if (entry.title.isBlank()) throw CalendarExportException("Укажи название события.")
+    if (richPlainText(entry.title,entry.titleFormat).isBlank()) throw CalendarExportException("Укажи название события.")
     if (entry.start.isBlank() && entry.end.isBlank()) return CalendarTimes(first, last.plusDays(1), null, null, zone)
     fun time(text: String): LocalTime = try { LocalTime.parse(text) } catch (_: Exception) {
         throw CalendarExportException("Укажи корректные время начала и окончания.")
@@ -96,7 +96,7 @@ internal fun googleEventBody(entry: Entry, zone: ZoneId): JSONObject {
         if (times.from == null) put("date", (if (first) times.first else times.lastExclusive).toString())
         else { put("dateTime", if (first) times.from else times.until); put("timeZone", zone.id) }
     }
-    return JSONObject().put("summary", entry.title).put("description", entry.note)
+    return JSONObject().put("summary", richPlainText(entry.title,entry.titleFormat)).put("description", richPlainText(entry.note,entry.descriptionFormat))
         .put("start", point(true)).put("end", point(false))
         .put("status", if (entry.invite == InviteState.PENDING) "tentative" else "confirmed")
 }
@@ -119,7 +119,7 @@ internal fun calendarIcs(entry: Entry, zone: ZoneId, uid: String, stamp: Instant
         "DTEND;VALUE=DATE:${times.lastExclusive.format(DateTimeFormatter.BASIC_ISO_DATE)}")
     else listOf("DTSTART:${utc.format(java.time.OffsetDateTime.parse(times.from))}", "DTEND:${utc.format(java.time.OffsetDateTime.parse(times.until))}")
     return (listOf("BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Shared Organizer//Calendar copy//EN", "BEGIN:VEVENT",
-        "UID:$uid", "DTSTAMP:${utc.format(stamp)}") + dates + listOf("SUMMARY:${icsEscape(entry.title)}", "DESCRIPTION:${icsEscape(entry.note)}",
+        "UID:$uid", "DTSTAMP:${utc.format(stamp)}") + dates + listOf("SUMMARY:${icsEscape(richPlainText(entry.title,entry.titleFormat))}", "DESCRIPTION:${icsEscape(richPlainText(entry.note,entry.descriptionFormat))}",
         "STATUS:${if(entry.invite == InviteState.PENDING) "TENTATIVE" else "CONFIRMED"}", "END:VEVENT", "END:VCALENDAR"))
         .joinToString("\r\n", postfix = "\r\n", transform = ::icsFold)
 }
@@ -137,9 +137,22 @@ internal class CalendarExporter(private val http: CalendarHttp, private val stor
         val previous = store.link(key)
         val id = previous?.externalId ?: calendarEventId(account, entry.id)
         require(id.matches(Regex("[a-v0-9]{5,1024}")))
+        if(previous!=null && previous.etag.isNotEmpty() && previous.pendingBody.isNotEmpty()) {
+            val remote=http.request("GET","$GOOGLE_EVENTS/$id","Bearer $token",null,emptyMap())
+            if(remote.code!=200)calendarFailure(remote.code)
+            val actual=JSONObject(remote.body);val version=actual.optString("etag")
+            if(version.isBlank())throw CalendarExportException("Календарь не вернул версию события.")
+            if(version!=previous.etag) {
+                if(!googleAttemptEqual(actual,JSONObject(previous.pendingBody)))calendarFailure(412)
+                store.putLink(key,previous.copy(etag=version,pendingBody=""))
+                return "Предыдущее обновление подтверждено. Для новых изменений нажми кнопку ещё раз."
+            }
+        }
         val payload = googleEventBody(entry, zone)
-        val pending = previous ?: CalendarLink(id, "", payload.toString())
-        if (previous == null) store.putLink(key, pending)
+        if(previous?.etag?.isNotEmpty()==true)payload.put("extendedProperties",JSONObject().put("private",JSONObject().put("kotikiExportAttempt",newId())))
+        val pending = if(previous?.etag?.isNotEmpty()==true)previous.copy(pendingBody=payload.toString()) else previous ?: CalendarLink(id, "", payload.toString())
+        // This durable receipt must exist before PATCH: a lost response must not lose the attempted version.
+        if (previous == null || pending.etag.isNotEmpty()) store.putLink(key, pending)
         val create = pending.etag.isEmpty()
         val response = http.request(if (create) "POST" else "PATCH", if (create) "$GOOGLE_EVENTS?sendUpdates=none" else "$GOOGLE_EVENTS/$id?sendUpdates=none",
             "Bearer $token", (if(create) JSONObject(payload.toString()).put("id", id) else payload).toString(),
@@ -168,10 +181,22 @@ internal class CalendarExporter(private val http: CalendarHttp, private val stor
         val previous = store.link(key)
         val id = previous?.externalId ?: (collection + calendarEventId(account, entry.id) + ".ics")
         trustedDavUrl(collection, id)
+        if(previous!=null && previous.etag.isNotEmpty() && previous.pendingBody.isNotEmpty()) {
+            val remote=http.request("GET",id,connection.authorization(),null,emptyMap())
+            if(remote.code!=200)calendarFailure(remote.code)
+            if(remote.etag.isBlank())throw CalendarExportException("Календарь не вернул версию события.")
+            if(remote.etag!=previous.etag) {
+                if(!previous.pendingBody.contains("X-KOTIKI-EXPORT-ATTEMPT:") || normalizeIcs(remote.body)!=normalizeIcs(previous.pendingBody))calendarFailure(412)
+                store.putLink(key,previous.copy(etag=remote.etag,pendingBody=""))
+                return "Предыдущее обновление подтверждено. Для новых изменений нажми кнопку ещё раз."
+            }
+        }
         val stamp = previous?.stamp ?: Instant.now().toString()
-        val body = calendarIcs(entry, zone, calendarEventId(account, entry.id) + "@shared-organizer", Instant.parse(stamp))
-        val pending = previous ?: CalendarLink(id, "", body, stamp)
-        if (previous == null) store.putLink(key, pending)
+        val body = calendarIcs(entry, zone, calendarEventId(account, entry.id) + "@shared-organizer", Instant.parse(stamp)).let{
+            if(previous?.etag?.isNotEmpty()==true)it.replace("END:VEVENT\r\n","X-KOTIKI-EXPORT-ATTEMPT:${newId()}\r\nEND:VEVENT\r\n")else it
+        }
+        val pending = if(previous?.etag?.isNotEmpty()==true)previous.copy(pendingBody=body) else previous ?: CalendarLink(id, "", body, stamp)
+        if (previous == null || pending.etag.isNotEmpty()) store.putLink(key, pending)
         val create = pending.etag.isEmpty()
         val response = http.request("PUT", id, connection.authorization(), body, mapOf("Content-Type" to "text/calendar; charset=utf-8") +
             if (create) mapOf("If-None-Match" to "*") else mapOf("If-Match" to pending.etag))
@@ -201,6 +226,10 @@ internal fun googleManagedEqual(a: JSONObject, b: JSONObject): Boolean = listOf(
         if (y.has("date")) x.optString("date") == y.optString("date")
         else runCatching { java.time.OffsetDateTime.parse(x.getString("dateTime")).toInstant() == java.time.OffsetDateTime.parse(y.getString("dateTime")).toInstant() }.getOrDefault(false)
     }
+internal fun googleAttemptEqual(actual:JSONObject,attempted:JSONObject):Boolean {
+    val token=attempted.optJSONObject("extendedProperties")?.optJSONObject("private")?.optString("kotikiExportAttempt").orEmpty()
+    return token.isNotEmpty() && actual.optJSONObject("extendedProperties")?.optJSONObject("private")?.optString("kotikiExportAttempt")==token && googleManagedEqual(actual,attempted)
+}
 
 internal data class YandexCalendarConnection(val username: String, val password: String, val calendarUrl: String, val label: String) {
     fun authorization(): String = "Basic " + java.util.Base64.getEncoder().encodeToString("$username:$password".toByteArray(Charsets.UTF_8))

@@ -32,7 +32,9 @@ private val Dark = darkColorScheme(
 @Composable fun KotikiTheme(theme: String, content: @Composable () -> Unit) {
     val inherited=LocalWinterDesign.current
     val winter=if(BuildConfig.DEBUG && BuildConfig.WINTER_PREVIEW) theme=="winter" else inherited?.enabled==true || RemoteDesigns.winterEnabled
-    val design=remember(winter){WinterDesignState(winter)}
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val snowPreferences=remember(context){context.getSharedPreferences("winter_appearance",0)}
+    val design=remember(winter,snowPreferences){WinterDesignState(winter,snowPreferences.getBoolean("snow",true)){snowPreferences.edit().putBoolean("snow",it).apply()}}
     val dark = !winter && when (theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
@@ -60,6 +62,11 @@ private tailrec fun Context.findActivity(): Activity? = when(this) {
 
 /** Subtle, consistent participant colors; task/event shape and markers remain distinct. */
 @Composable fun participantTint(person: Person, compactTask: Boolean = false): Color {
+    if(winterDesignEnabled())return when(person){
+        Person.USER_1->Color(0xFFF1E6D3)
+        Person.USER_2->Color(0xFFD9ECE2)
+        Person.BOTH->Color(0xFFCDE3F5)
+    }.copy(alpha=if(compactTask).94f else .90f)
     val colors=MaterialTheme.colorScheme
     val accent=when(person) {
         Person.USER_1 -> Color(0xFF899EC5)
@@ -70,8 +77,8 @@ private tailrec fun Context.findActivity(): Activity? = when(this) {
 }
 
 
-@Composable fun gatheringAccent():Color = if(winterDesignEnabled())Color(0xFF88769C) else if(MaterialTheme.colorScheme.background.luminance()<.5f)Color(0xFFF0ABC3) else Color(0xFF99536C)
-@Composable fun gatheringTint():Color = winterSurface(lerp(MaterialTheme.colorScheme.surface,gatheringAccent(),.13f))
+@Composable fun gatheringAccent():Color = if(winterDesignEnabled())Color(0xFF2866A5) else if(MaterialTheme.colorScheme.background.luminance()<.5f)Color(0xFFF0ABC3) else Color(0xFF99536C)
+@Composable fun gatheringTint():Color = if(winterDesignEnabled())Color(0xFFCDE3F5).copy(alpha=.92f) else winterSurface(lerp(MaterialTheme.colorScheme.surface,gatheringAccent(),.13f))
 @Composable fun GatheringLabel() {
     androidx.compose.foundation.layout.Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement=androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {

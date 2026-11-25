@@ -125,6 +125,70 @@ class CalendarExportTest {
         assertThrows(CalendarExportException::class.java) { exporter.yandex(event().copy(title = "Изменение"), connection, zone) }
         assertEquals(2, http.calls.size); assertEquals("\"v1\"", store.values.values.single().etag)
     }
+    @Test fun googleLostUpdateResponseRecoversExactAttemptBeforeSendingNewerEdits() {
+        val store=Memory();val key=calendarLinkKey(CalendarProvider.GOOGLE,"account-a",event().id)
+        store.putLink(key,CalendarLink(calendarEventId("account-a",event().id),"v1"))
+        var attempted="";val calls=mutableListOf<String>()
+        val http=CalendarHttp{method,_,_,body,headers->
+            calls+=method
+            if(method=="PATCH"){
+                assertEquals("v1",headers["If-Match"]);attempted=body!!
+                assertEquals(attempted,store.link(key)!!.pendingBody)
+                throw java.io.IOException("Lost response")
+            }
+            CalendarHttpResponse(200,JSONObject(attempted).put("etag","v2").toString())
+        }
+        val exporter=CalendarExporter(http,store)
+        assertThrows(java.io.IOException::class.java){exporter.google(event().copy(title="Attempt"),"account-a","token",zone)}
+        exporter.google(event().copy(title="Later unsent edit"),"account-a","token",zone)
+        assertEquals(listOf("PATCH","GET"),calls);assertEquals("v2",store.link(key)!!.etag);assertEquals("",store.link(key)!!.pendingBody)
+    }
+    @Test fun googlePendingUpdateCannotAdoptExternalVersionWithSameManagedTextButDifferentAttempt() {
+        val store=Memory();val key=calendarLinkKey(CalendarProvider.GOOGLE,"account-a",event().id)
+        val attempted=googleEventBody(event(),zone).put("extendedProperties",JSONObject().put("private",JSONObject().put("kotikiExportAttempt","ours")))
+        store.putLink(key,CalendarLink(calendarEventId("account-a",event().id),"v1",attempted.toString()))
+        val actual=JSONObject(attempted.toString()).put("etag","external-v2").put("extendedProperties",JSONObject().put("private",JSONObject().put("kotikiExportAttempt","other")))
+        val http=FakeHttp();http.answers+=CalendarHttpResponse(200,actual.toString())
+        assertThrows(CalendarExportException::class.java){CalendarExporter(http,store).google(event(),"account-a","token",zone)}
+        assertEquals(listOf("GET"),http.calls.map{it.method});assertEquals("v1",store.link(key)!!.etag)
+        actual.getJSONObject("extendedProperties").getJSONObject("private").put("kotikiExportAttempt","ours")
+        actual.put("summary","External edit")
+        assertFalse(googleAttemptEqual(actual,attempted))
+    }
+    @Test fun yandexLostUpdateResponseRecoversOnlyExactCommittedIcs() {
+        val store=Memory();val connection=YandexCalendarConnection("account-a","password","https://caldav.yandex.ru/calendars/test/","Test")
+        val key=calendarLinkKey(CalendarProvider.YANDEX,"account-a|${connection.calendarUrl}",event().id)
+        val id=connection.calendarUrl+"existing.ics"
+        store.putLink(key,CalendarLink(id,"v1"))
+        var attempted="";val calls=mutableListOf<String>()
+        val http=CalendarHttp{method,_,_,body,headers->
+            calls+=method
+            if(method=="PUT"){
+                assertEquals("v1",headers["If-Match"]);attempted=body!!
+                assertTrue(attempted.contains("X-KOTIKI-EXPORT-ATTEMPT:"));assertEquals(attempted,store.link(key)!!.pendingBody)
+                throw java.io.IOException("Lost response")
+            }
+            CalendarHttpResponse(200,attempted,"v2")
+        }
+        val exporter=CalendarExporter(http,store)
+        assertThrows(java.io.IOException::class.java){exporter.yandex(event(),connection,zone)}
+        exporter.yandex(event().copy(title="Later edit"),connection,zone)
+        assertEquals(listOf("PUT","GET"),calls);assertEquals("v2",store.link(key)!!.etag)
+    }
+    @Test fun pendingUpdateWithOldEtagRetriesUsingGuardedNewAttempt() {
+        val store=Memory();val key=calendarLinkKey(CalendarProvider.GOOGLE,"account-a",event().id)
+        store.putLink(key,CalendarLink(calendarEventId("account-a",event().id),"v1",googleEventBody(event(),zone).toString()))
+        val http=FakeHttp();http.answers+=CalendarHttpResponse(200,googleEventBody(event(),zone).put("etag","v1").toString());http.answers+=CalendarHttpResponse(200,"{\"etag\":\"v2\"}")
+        CalendarExporter(http,store).google(event().copy(title="Retry"),"account-a","token",zone)
+        assertEquals(listOf("GET","PATCH"),http.calls.map{it.method});assertEquals("v1",http.calls.last().headers["If-Match"])
+        assertTrue(JSONObject(http.calls.last().body!!).has("extendedProperties"))
+    }
+    @Test fun calendarCopiesUseVisibleTextInsteadOfMarkdownMarkers() {
+        val source=event().copy(title="**Title**",note="A <u>note</u>",titleFormat=MARKDOWN_TEXT_FORMAT,descriptionFormat=MARKDOWN_TEXT_FORMAT)
+        assertEquals("Title",googleEventBody(source,zone).getString("summary"))
+        assertEquals("A note",googleEventBody(source,zone).getString("description"))
+        assertTrue(calendarIcs(source,zone,"test",Instant.EPOCH).contains("DESCRIPTION:A note\r\n"))
+    }
     @Test fun discoveryRejectsCredentialExfiltrationAndXmlEntities() {
         listOf("http://caldav.yandex.ru/", "https://caldav.yandex.ru.attacker.test/", "https://attacker.test/", "https://user:secret@caldav.yandex.ru/", "https://caldav.yandex.ru:444/", "//attacker.test/", "https://caldav.yandex.ru/?secret=1")
             .forEach { assertThrows(CalendarExportException::class.java) { trustedDavUrl(YANDEX_DAV_ROOT, it) } }

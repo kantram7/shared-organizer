@@ -48,7 +48,7 @@ import java.time.LocalDate
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text(group.name,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
                 TextButton({dialog="item"}){Text(if(isPlans)"+ План" else "+ Пункт")}
-                ItemActions(group.name,{store.deleteCollection(isPlans,group.id)},groupActions,onEdit={dialog="rename"},
+                ItemActions(group.name,if(store.cloudSession==null || group.owner==store.viewer){{store.deleteCollection(isPlans,group.id)}}else null,groupActions,onEdit={dialog="rename"},
                     deleteMessage="Будут удалены все записи внутри: ${group.items.size}.")
             }
             ReorderColumn(store.manualOrder,"plans/${group.id}",group.items,{it.id}) {item->
@@ -57,7 +57,7 @@ import java.time.LocalDate
                 Surface(Modifier.fillMaxWidth().padding(bottom=7.dp).winterIcicles(item.id,if(item.id==store.manualOrder.sorted("plans/${group.id}",group.items,{it.id}).lastOrNull()?.id)6.dp else 0.dp).clickable{open()},shape=RoundedCornerShape(12.dp),color=winterSurface(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
                         if(!isPlans)Checkbox(item.checked,{store.toggleItem(group.id,item.id)})
-                        LinkText(item.title,Modifier.weight(1f).padding(vertical=12.dp))
+                        LinkText(item.title,format=item.titleFormat,modifier=Modifier.weight(1f).padding(vertical=12.dp))
                         if(!isPlans)CollectionAccess(group,onHelp)
                         ItemActions(item.title,{store.deleteItem(isPlans,group.id,item.id)},actions,
                             onEdit={editingItem=item},onOpen=if(isPlans){{open()}}else null)
@@ -70,7 +70,7 @@ import java.time.LocalDate
     }
     }
     editingItem?.let {opened->selected?.let {group->
-        PlanEditor(opened,onDismiss={editingItem=null},isPlan=isPlans){title,description->
+        PlanEditor(opened,onDismiss={editingItem=null},isPlan=isPlans,sourceLink=sourceDeepLink("plan",group.id,opened.id)){title,description->
             store.updateItem(isPlans,group.id,opened.id,title,description);editingItem=null
         }
     }}
@@ -127,7 +127,7 @@ import java.time.LocalDate
             }
             if(hidden.isNotEmpty())Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
-                    TextButton({menuExpanded=true}){Text("Ещё (${hidden.size}) ▾",maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    TextButton({menuExpanded=true}){Text("Ещё (${hidden.size})",maxLines=1,overflow=TextOverflow.Ellipsis);Spacer(Modifier.width(4.dp));DisclosureIcon(menuExpanded)}
                     DropdownMenu(menuExpanded,{menuExpanded=false}) {
                         hidden.forEach {c->DropdownMenuItem(text={Text(c.name)},onClick={onSelect(c.id);menuExpanded=false},
                             trailingIcon=if(showAccess){{CollectionAccess(c,onHelp)}}else null)}
@@ -156,14 +156,16 @@ import java.time.LocalDate
         dismissButton={TextButton(onDismiss){Text("Отмена")}})
 }
 
-@Composable fun PlanEditor(initial:CollectionItem?,onDismiss:()->Unit,isPlan:Boolean=true,onSave:(String,String)->Unit) {
+@Composable fun PlanEditor(initial:CollectionItem?,onDismiss:()->Unit,isPlan:Boolean=true,sourceLink:String?=null,onSave:(String,String)->Unit) {
     var title by rememberSaveable(initial?.id){mutableStateOf(initial?.title ?: "")}
+    var titleFormat by rememberSaveable(initial?.id){mutableStateOf(initial?.titleFormat ?: "markdown-v1")}
+    var descriptionFormat by rememberSaveable(initial?.id){mutableStateOf(initial?.descriptionFormat ?: "markdown-v1")}
     var description by rememberSaveable(initial?.id){mutableStateOf(initial?.description ?: "")}
     AlertDialog(onDismissRequest=onDismiss,title={Text(if(initial==null)"Новый план" else if(isPlan)"Редактировать план" else "Редактировать пункт")},
         text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(title,{title=it.take(100)},Modifier.fillMaxWidth(),label={Text("Название")},singleLine=true)
-            if(isPlan)OutlinedTextField(description,{description=it.take(4000)},Modifier.fillMaxWidth(),label={Text("Описание")},minLines=3,maxLines=8)
+            RichTextEditor(title,{title=it;titleFormat="markdown-v1"},Modifier.fillMaxWidth(),format=titleFormat,sourceLink=sourceLink,label="Название",titleOnly=true,minLines=1,maxLines=2,maxLength=100)
+            if(isPlan)RichTextEditor(description,{description=it;descriptionFormat="markdown-v1"},Modifier.fillMaxWidth(),format=descriptionFormat,sourceLink=sourceLink,label="Описание",minLines=3,maxLines=8,maxLength=4000)
             EditorLinks(title+"\n"+description)
-        }},confirmButton={TextButton({onSave(title.trim(),description.trim())},enabled=title.isNotBlank()){Text("Сохранить")}},
+        }},confirmButton={TextButton({onSave(if(titleFormat=="plain-v1")RichTextCodec.escape(title.trim())else title.trim(),if(descriptionFormat=="plain-v1")RichTextCodec.escape(description.trim())else description.trim())},enabled=title.isNotBlank()){Text("Сохранить")}},
         dismissButton={TextButton(onDismiss){Text("Отмена")}})
 }

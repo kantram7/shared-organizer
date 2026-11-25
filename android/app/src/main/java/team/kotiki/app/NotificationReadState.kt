@@ -31,6 +31,12 @@ internal object NotificationReadState {
         if(visible.containsKey(key(uid,route))){markRead(context,uid,route);return false}
         return !alreadyRead(createdAt,prefs(context).getLong(key(uid,route),0))
     }
+    fun messageRead(context:Context,uid:String,chatId:String,messageId:String):Boolean = messageId.isNotBlank() && prefs(context).getBoolean("message/$uid/$chatId/$messageId",false)
+    fun markMessageRead(context:Context,uid:String,chatId:String,messageId:String){
+        prefs(context).edit().putBoolean("message/$uid/$chatId/$messageId",true).apply()
+        val manager=context.getSystemService(NotificationManager::class.java)
+        manager.activeNotifications.filter{it.notification.extras.getString("kotiki_message_id")==messageId && matches(it.notification.extras,uid,chat(chatId))}.forEach{manager.cancel(it.tag,it.id)}
+    }
     fun markRead(context:Context,uid:String,route:String){
         prefs(context).edit().putLong(key(uid,route),System.currentTimeMillis()).apply()
         val manager=context.getSystemService(NotificationManager::class.java)

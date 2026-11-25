@@ -45,8 +45,21 @@ val LocalCloudMode=staticCompositionLocalOf{false}
     var session by remember{mutableStateOf<CloudSession?>(null)}
     var accessMessage by remember{mutableStateOf("Проверяем доступ…")}
     var retry by remember{mutableIntStateOf(0)}
+    var logoutPending by remember{mutableStateOf(false)}
+    fun logout() {
+        if(logoutPending)return
+        logoutPending=true
+        AccountLogout.signOut(context,auth){logoutPending=false}
+    }
     DisposableEffect(auth){
-        val listener=FirebaseAuth.AuthStateListener{AppLockSessions.retainFor(it.currentUser?.uid);user=it.currentUser}
+        var priorUid=auth.currentUser?.uid
+        val listener=FirebaseAuth.AuthStateListener{
+            val nextUid=it.currentUser?.uid
+            listOfNotNull(priorUid,AndroidPush.binding(context)?.authUid).distinct().filter{old->old!=nextUid}
+                .forEach{old->AndroidPush.clearLocal(context,old)}
+            priorUid=nextUid
+            AppLockSessions.retainFor(nextUid);user=it.currentUser
+        }
         auth.addAuthStateListener(listener)
         onDispose{auth.removeAuthStateListener(listener)}
     }
@@ -62,10 +75,14 @@ val LocalCloudMode=staticCompositionLocalOf{false}
             val spaceId=member?.getString("spaceId")
             val canonicalUid=member?.getString("canonicalUid") ?: uid
             if(error!=null || spaceId==null){accessMessage="Аккаунт ещё не подключён к вашему пространству. Доступ добавляет владелец проекта."}
+            else if(!testMembershipAllowed(BuildConfig.AGENT_TEST,uid,canonicalUid,member?.getBoolean("testOnly")==true)) {
+                accessMessage="Тестовая сборка работает только в отдельном тестовом пространстве."
+            }
             else workspace=db.collection("spaces").document(spaceId).addSnapshotListener spaceListener@{space,spaceError->
                 if(!active)return@spaceListener
                 session=runCatching {
                     require(spaceError==null && space!=null && space.exists())
+                    require(!BuildConfig.AGENT_TEST || space!!.getBoolean("testOnly")==true)
                     @Suppress("UNCHECKED_CAST") val roles=(space!!.get("roles") as Map<String,String>).mapValues{Person.valueOf(it.value)}
                     @Suppress("UNCHECKED_CAST") val uids=space.get("uids") as List<String>
                     @Suppress("UNCHECKED_CAST") val rawNames=space.get("names") as Map<String,String>
@@ -82,16 +99,18 @@ val LocalCloudMode=staticCompositionLocalOf{false}
         onDispose{active=false;membership?.remove();workspace?.remove()}
     }
     val current=session?.takeIf{it.authUid==user?.uid}
-    KotikiTheme("light") {
+    KotikiTheme(rememberAppTheme()) {
         if(user==null)LoginScreen(auth,{demo=true})
         else if(current==null)Surface(Modifier.fillMaxSize()) {
+            WinterAuthSurface {
             Column(Modifier.safeDrawingPadding().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                BrandMark(Modifier.size(100.dp))
+                WinterBrandMark(Modifier.size(100.dp))
                 Text(accessMessage)
                 Text(user?.email ?: "",style=MaterialTheme.typography.bodySmall)
                 if(BuildConfig.AGENT_TEST)Text("Тестовый UID: ${user?.uid}",style=MaterialTheme.typography.bodySmall)
                 Button({retry++}){Text("Проверить снова")}
-                TextButton({auth.signOut()}){Text("Выйти из аккаунта")}
+                TextButton({logout()},enabled=!logoutPending){Text(if(logoutPending)"Выходим…" else "Выйти из аккаунта")}
+            }
             }
         } else key(current.authUid,current.spaceId) {
             val store=remember{DemoStore(context,cloudSession=current)}
@@ -101,17 +120,7 @@ val LocalCloudMode=staticCompositionLocalOf{false}
             val reminderEntries=store.entries.toList()
             LaunchedEffect(reminderEntries,store.cloudReady) {
                 if(store.cloudReady)kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    LocalReminders.sync(context,current.authUid,reminderEntries,current.viewer)
-                }
-            }
-            var logoutPending by remember{mutableStateOf(false)}
-            var logoutError by remember{mutableStateOf(false)}
-            fun logout() {
-                if(logoutPending)return
-                logoutPending=true;logoutError=false
-                AndroidPush.unregister(context,current){ok->
-                    logoutPending=false
-                    if(ok){LocalReminders.clearProfile(context,current.authUid);auth.signOut()}else logoutError=true
+                    LocalReminders.sync(context,current.authUid,reminderEntries,current.viewer,PushBinding(current.authUid,current.uid,current.spaceId,current.viewer))
                 }
             }
             DisposableEffect(sync){sync.start();store.notes.start();store.cloudHistory=sync::history;onDispose{sync.close();store.notes.close();chats.close()}}
@@ -119,13 +128,14 @@ val LocalCloudMode=staticCompositionLocalOf{false}
             CompositionLocalProvider(LocalDemoIdentity provides store.identity,LocalCloudMode provides true) {
                 KotikiTheme(store.theme) {
                     if(store.cloudReady)LockGate(current.authUid) { KotikiApp(store,notificationTarget,onNotificationHandled,onSignOut={logout()},chats=chats)
-                        if(logoutPending)AlertDialog(onDismissRequest={},title={Text("Выходим из аккаунта")},text={Text("Отключаем уведомления на этом телефоне. Нужен интернет.")},confirmButton={})
-                        if(logoutError)AlertDialog(onDismissRequest={logoutError=false},text={Text("Не удалось отключить уведомления. Проверь интернет и повтори выход.")},confirmButton={TextButton({logoutError=false}){Text("Понятно")}}) }
+                        if(logoutPending)AlertDialog(onDismissRequest={},title={Text("Выходим из аккаунта")},text={Text("Уведомления на этом телефоне отключены. Завершаем выход…")},confirmButton={}) }
                     else Surface(Modifier.fillMaxSize()) {
+                        WinterAuthSurface {
                         Column(Modifier.safeDrawingPadding().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                             Text(store.cloudStatus)
                             if(store.cloudError.isEmpty())CircularProgressIndicator()
-                            TextButton({auth.signOut()},enabled=!store.cloudPending && !store.chatPending){Text("Выйти из аккаунта")}
+                            TextButton({logout()},enabled=!logoutPending && !store.cloudPending && !store.chatPending){Text(if(logoutPending)"Выходим…" else "Выйти из аккаунта")}
+                        }
                         }
                     }
                 }
@@ -141,10 +151,12 @@ val LocalCloudMode=staticCompositionLocalOf{false}
     var working by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf("")}
     Surface(Modifier.fillMaxSize()) {
+        WinterAuthSurface {
         Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).padding(28.dp),
             verticalArrangement=Arrangement.spacedBy(16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-            BrandMark(Modifier.size(180.dp),withName=true)
+            WinterBrandMark(Modifier.size(180.dp),withName=true)
             Text("Войти в наше пространство",style=MaterialTheme.typography.titleLarge)
+            if(!BuildConfig.AGENT_TEST) {
             OutlinedTextField(email,{email=it},Modifier.fillMaxWidth(),label={Text("Email")},singleLine=true,
                 keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Email),enabled=!working)
             OutlinedTextField(password,{password=it},Modifier.fillMaxWidth(),label={Text("Пароль")},singleLine=true,
@@ -157,6 +169,7 @@ val LocalCloudMode=staticCompositionLocalOf{false}
                     if(!task.isSuccessful)error="Не удалось войти. Проверь email, пароль и подключение к интернету."
                 }
             },Modifier.fillMaxWidth(),enabled=!working && email.isNotBlank() && password.isNotEmpty()){Text(if(working)"Входим…" else "Войти")}
+            }
             Text("Доступ только у участников вашего пространства. Установка APK сама по себе не даёт доступа.",style=MaterialTheme.typography.bodySmall)
             if(BuildConfig.AGENT_TEST)OutlinedButton({
                 working=true;error=""
@@ -167,5 +180,6 @@ val LocalCloudMode=staticCompositionLocalOf{false}
             },enabled=!working){Text("Войти анонимно для теста")}
             TextButton(onDemo,enabled=!working){Text("Посмотреть локальное демо")}
         }
+    }
     }
 }

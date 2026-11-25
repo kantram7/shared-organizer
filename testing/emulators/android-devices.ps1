@@ -8,6 +8,8 @@ param(
     [ValidateSet('auto', 'host', 'software', 'swiftshader')][string]$GpuMode = 'auto',
     [switch]$DisableVulkan,
     [string]$TimeZone,
+    [ValidateRange(1024,4096)][int]$MemoryMiB = 2048,
+    [switch]$ResetUserData,
     [switch]$AllowLowMemory
 )
 $ErrorActionPreference = 'Stop'
@@ -79,10 +81,11 @@ try {
     if ($Action -eq 'Start') {
         & $emulator -accel-check
         if ($LASTEXITCODE -ne 0) { throw 'Hardware acceleration is unavailable. Complete Windows setup/restart first.' }
+        if ($ResetUserData -and @($devices | Where-Object { (Get-DeviceState $_) -ne 'stopped' }).Count -gt 0) { throw 'Stop the selected test emulators before resetting their data.' }
         $pending = @($devices | Where-Object { (Get-DeviceState $_) -eq 'stopped' })
         if ($pending.Count -gt 0 -and !$AllowLowMemory) {
             $freeGB = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
-            $requiredGB = 1 + 3 * $pending.Count
+            $requiredGB = 1 + ($MemoryMiB / 1024 + 1) * $pending.Count
             if ($freeGB -lt $requiredGB) {
                 throw ('Only {0:N1} GB RAM free; close unused applications to free about {1} GB, or start one device. -AllowLowMemory overrides this check.' -f $freeGB,$requiredGB)
             }
@@ -91,7 +94,8 @@ try {
         foreach ($target in $devices) {
             if ((Get-DeviceState $target) -eq 'device') { Assert-DeviceIdentity $target; Write-Output "$($target.User): already running"; continue }
             if ((Get-DeviceState $target) -ne 'stopped') { throw "$($target.Serial) is offline or not ready; inspect it before starting another instance." }
-            $arguments = @('-avd', $target.Avd, '-port', $target.Port, '-memory', '2048', '-cores', '2', '-gpu', $GpuMode, '-no-boot-anim')
+            $arguments = @('-avd', $target.Avd, '-port', $target.Port, '-memory', $MemoryMiB, '-cores', '2', '-gpu', $GpuMode, '-no-boot-anim')
+            if ($ResetUserData) { $arguments += @('-wipe-data','-no-snapshot') }
             if ($TimeZone) { $arguments += @('-timezone', $TimeZone) }
             if ($DisableVulkan) { $arguments += @('-feature', '-Vulkan') }
             if ($Headless) { $arguments += '-no-window' }

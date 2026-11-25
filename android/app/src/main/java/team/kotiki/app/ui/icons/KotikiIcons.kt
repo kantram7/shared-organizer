@@ -13,7 +13,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 enum class Glyph(val resource: Int) {
-    MEETING(R.drawable.ic_meeting), MENU(R.drawable.ic_menu), CAT(R.drawable.ic_cat_face), CAT_GIRL(0), PAIR(0), PRIVATE_LOCK(R.drawable.ic_private_lock),
+    MEETING(R.drawable.ic_gathering_hearts), MENU(R.drawable.ic_menu), CAT(R.drawable.ic_cat_face), CAT_GIRL(0), PAIR(0), PRIVATE_LOCK(R.drawable.ic_private_lock),
     EYE_OFF(R.drawable.ic_eye_off), BOARD(R.drawable.ic_board), PLANS(R.drawable.ic_plans),
     CALENDAR(R.drawable.ic_calendar), LIST(R.drawable.ic_list), MAIL(R.drawable.ic_mail), CHAT(R.drawable.ic_chat),
     SETTINGS(R.drawable.ic_settings), CLOSE(R.drawable.ic_close), LEFT(R.drawable.ic_left),
@@ -30,7 +30,7 @@ enum class Glyph(val resource: Int) {
                 CatGirlIcon(Modifier.size(24.dp),color)
             }
             Glyph.CAT_GIRL -> CatGirlIcon(Modifier.fillMaxSize(),color)
-            else -> Image(painterResource(glyph.resource),contentDescription=null,modifier=Modifier.fillMaxSize(),
+            else -> Image(painterResource(if(glyph==Glyph.PLANS && winterDesignEnabled())R.drawable.ic_snowflake_fern else glyph.resource),contentDescription=null,modifier=Modifier.fillMaxSize(),
                 contentScale=ContentScale.Fit,colorFilter=ColorFilter.tint(color))
         }
     }

@@ -8,6 +8,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -34,11 +36,15 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-@Composable fun NotesScreen(store:NotesStore,manualOrder:LocalOrderStore,onHelp:(String)->Unit) {
+@Composable fun NotesScreen(store:NotesStore,manualOrder:LocalOrderStore,requestedNoteId:String?=null,onNoteOpened:()->Unit={},onHelp:(String)->Unit) {
+    val createTask=LocalCreateTask.current
     var selectedId by rememberSaveable{mutableStateOf("")}
     var archive by rememberSaveable{mutableStateOf(false)}
     var query by rememberSaveable{mutableStateOf("")}
     var opened by rememberSaveable{mutableStateOf<String?>(null)}
+    LaunchedEffect(requestedNoteId,store.notes.toList()) {
+        requestedNoteId?.let{id->store.notes.find{it.id==id}?.let{opened=id;selectedId=it.groupId;archive=it.archived||store.groupOf(it)?.archived==true;onNoteOpened()}}
+    }
     var newGroup by rememberSaveable{mutableStateOf(false)}
     var rename by remember{mutableStateOf<NoteGroup?>(null)}
     var moveId by rememberSaveable{mutableStateOf<String?>(null)}
@@ -87,14 +93,15 @@ import androidx.compose.ui.window.DialogProperties
                 Surface(Modifier.fillMaxWidth().padding(vertical=4.dp).winterIcicles(note.id,if(note.id==manualOrder.sorted("notes/${selected?.id}",visible,{it.id}).lastOrNull()?.id)6.dp else 0.dp).clickable{opened=note.id},shape=RoundedCornerShape(14.dp),color=winterSurface(MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.padding(start=12.dp,top=8.dp,bottom=8.dp),verticalAlignment=Alignment.Top) {
                         Column(Modifier.weight(1f)) {
-                            LinkText(note.label,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            LinkText(note.blocks.joinToString(" "){it.text}.ifBlank{"Пустая заметка"},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
+                            LinkText(note.title.ifBlank{"Без названия"},format=note.titleFormat,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            LinkText(note.preview.ifBlank{"Пустая заметка"},maxLines=2,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall)
                             if(query.isNotBlank()||archive)Text(group.name,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                             if(store.moving(note.id))Text("Перенос ожидает подтверждения сервера",style=MaterialTheme.typography.labelSmall)
                         }
                         Box {
                             IconButton({menu=true},Modifier.semantics{contentDescription="Действия: ${note.label}"}){KotikiIcon(Glyph.SETTINGS,Modifier.size(18.dp))}
                             DropdownMenu(menu,{menu=false}) {
+                                if(createTask!=null)DropdownMenuItem(text={Text("Создать задачу")},onClick={menu=false;createTask(selectionWithSource(richPlainText(note.title,note.titleFormat)+"\n"+richPlainText(note.body,MARKDOWN_TEXT_FORMAT),sourceDeepLink("note",note.id)))})
                                 DropdownMenuItem(text={Text("Переместить")},enabled=!store.moving(note.id),onClick={menu=false;moveId=note.id})
                                 if(store.canEdit(group)&&!store.moving(note.id)) {
                                     DropdownMenuItem(text={Text(if(archive)"Восстановить" else "В архив")},onClick={menu=false;if(group.archived)store.changeGroup(group,archived=false);store.archive(note,!archive)})
@@ -130,8 +137,8 @@ import androidx.compose.ui.window.DialogProperties
     var name by rememberSaveable{mutableStateOf("")};var shared by rememberSaveable{mutableStateOf(true)};var editable by rememberSaveable{mutableStateOf(true)}
     AlertDialog(onDismissRequest=onClose,title={Text("Новая группа заметок")},text={Column {
         OutlinedTextField(name,{name=it.take(100)},label={Text("Название")},singleLine=true)
-        Row(verticalAlignment=Alignment.CenterVertically){Checkbox(shared,{shared=it});Text("Видно всем")}
-        if(shared)Row(verticalAlignment=Alignment.CenterVertically){Checkbox(editable,{editable=it});Text("Совместное редактирование")}
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).toggleable(value=shared,role=Role.Checkbox,onValueChange={shared=it}),verticalAlignment=Alignment.CenterVertically){Checkbox(shared,null);Text("Видно всем",Modifier.weight(1f))}
+        if(shared)Row(Modifier.fillMaxWidth().heightIn(min=48.dp).toggleable(value=editable,role=Role.Checkbox,onValueChange={editable=it}),verticalAlignment=Alignment.CenterVertically){Checkbox(editable,null);Text("Совместное редактирование",Modifier.weight(1f))}
         else Text("Личные заметки и их архив хранятся только на этом телефоне.",style=MaterialTheme.typography.bodySmall)
     }},confirmButton={TextButton({onCreate(name,shared,editable)},enabled=name.isNotBlank()){Text("Создать")}},dismissButton={TextButton(onClose){Text("Отмена")}})
 }
@@ -139,109 +146,37 @@ import androidx.compose.ui.window.DialogProperties
 @Composable private fun NoteEditor(store:NotesStore,id:String,onClose:()->Unit,onMove:()->Unit) {
     val note=store.notes.find{it.id==id}?:return
     val group=store.groupOf(note)?:return
+    val createTask=LocalCreateTask.current
     val editable=store.canEdit(group)&&!store.moving(id)&&!group.archived&&!note.archived
     var menu by remember{mutableStateOf(false)}
-    var folded by rememberSaveable{mutableStateOf(true)}
-    val focus=remember{FocusRequester()};val keyboard=LocalSoftwareKeyboardController.current
-    var textFocus by remember{mutableStateOf<Pair<String,Int>?>(null)}
-    var focusGeneration by remember{mutableIntStateOf(0)}
-    fun focusBlank(blockId:String?=null) {
-        if(!editable)return
-        val latest=store.notes.find{it.id==id}?:return
-        val tail=latest.blocks.lastOrNull()
-        val block=if(blockId!=null)latest.blocks.find{it.id==blockId} else tail?.takeIf{it.kind==NoteBlockKind.TEXT}
-        if(block==null && latest.blocks.size>=200)return
-        val target=block?:NoteBlock()
-        val text=noteBlankLine(target.text)
-        store.edit(latest.copy(blocks=if(block==null)latest.blocks+target else latest.blocks.map{if(it.id==target.id)it.copy(text=text)else it}))
-        textFocus=target.id to ++focusGeneration
-    }
+    val initialFocus=remember{FocusRequester()}
+    val keyboard=LocalSoftwareKeyboardController.current
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         EditorSurface(Modifier.fillMaxWidth(.96f).fillMaxHeight(.93f).imePadding(),shape=RoundedCornerShape(24.dp)) {
-            Column(Modifier.padding(16.dp).focusRequester(focus).focusable()) {
+            Column(Modifier.padding(16.dp).focusRequester(initialFocus).focusable()) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Text(group.name,Modifier.weight(1f),style=MaterialTheme.typography.labelLarge)
                     Box {
                         IconButton({menu=true}){KotikiIcon(Glyph.SETTINGS,Modifier.size(18.dp))}
                         DropdownMenu(menu,{menu=false}) {
+                            if(createTask!=null)DropdownMenuItem(text={Text("Создать задачу")},onClick={menu=false;onClose();createTask(selectionWithSource(richPlainText(note.title,note.titleFormat)+"\n"+richPlainText(note.body,MARKDOWN_TEXT_FORMAT),sourceDeepLink("note",note.id)))})
                             DropdownMenuItem(text={Text("Переместить")},enabled=!store.moving(id),onClick={menu=false;onMove()})
                             if(editable)DropdownMenuItem(text={Text("В архив")},onClick={menu=false;store.archive(note);onClose()})
                         }
                     }
                     IconButton(onClose,Modifier.semantics{contentDescription="Закрыть заметку"}){KotikiIcon(Glyph.CLOSE)}
                 }
-                Text(if(store.error.isNotBlank())store.error else if(!editable && !store.moving(id))"Только просмотр" else if(store.moving(id))"Перенос ожидает сервера" else if(!group.shared)"Сохранено только на телефоне" else if(store.pending)"Сохранено на телефоне · отправляем" else "Сохранено",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                BoxWithConstraints(Modifier.weight(1f)) {
-                val viewportHeight=maxHeight
-                val density=LocalDensity.current
-                var contentHeight by remember{mutableStateOf(0.dp)}
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                Column(Modifier.fillMaxWidth().onSizeChanged{contentHeight=with(density){it.height.toDp()}}) {
-                    OutlinedTextField(note.title,{store.edit(note.copy(title=it))},Modifier.fillMaxWidth().padding(vertical=8.dp),placeholder={Text("Название")},readOnly=!editable,textStyle=MaterialTheme.typography.titleLarge)
-                    EditorLinks(note.title)
-                    var number=0
-                    note.blocks.filterNot{folded&&it.kind==NoteBlockKind.CHECK&&it.checked}.forEach{block->key(block.id){
-                        if(block.kind==NoteBlockKind.NUMBERED)number++ else number=0
-                        Row(Modifier.fillMaxWidth().padding(vertical=4.dp),verticalAlignment=Alignment.Top) {
-                            when(block.kind) {
-                                NoteBlockKind.CHECK->Checkbox(block.checked,{v->store.edit(note.copy(blocks=note.blocks.map{if(it.id==block.id)it.copy(checked=v)else it}))},enabled=editable)
-                                NoteBlockKind.BULLET->Text("•",Modifier.padding(end=8.dp,top=8.dp))
-                                NoteBlockKind.NUMBERED->Text("$number.",Modifier.padding(end=8.dp,top=8.dp))
-                                else->Unit
-                            }
-                            NoteBlockInput(block,editable,textFocus?.takeIf{it.first==block.id}?.second,Modifier.weight(1f),
-                                onBlank={focusBlank(block.id)},onText={value->
-                                    store.notes.find{it.id==id}?.let{latest->store.edit(latest.copy(blocks=latest.blocks.map{if(it.id==block.id)it.copy(text=value)else it}))}
-                                })
-                            if(editable) {
-                                var blockMenu by remember{mutableStateOf(false)}
-                                Box {
-                                    IconButton({blockMenu=true},Modifier.size(40.dp).semantics{contentDescription="Формат блока"}){KotikiIcon(Glyph.SETTINGS,Modifier.size(14.dp))}
-                                    DropdownMenu(blockMenu,{blockMenu=false}) {
-                                        NoteBlockKind.entries.forEach{k->DropdownMenuItem(text={Text(blockKindLabel(k))},onClick={blockMenu=false;store.edit(note.copy(blocks=note.blocks.map{if(it.id==block.id)it.copy(kind=k,checked=false)else it}))})}
-                                        DropdownMenuItem(text={Text(if(block.bold)"Обычный шрифт" else "Жирный шрифт")},onClick={blockMenu=false;store.edit(note.copy(blocks=note.blocks.map{if(it.id==block.id)it.copy(bold=!it.bold)else it}))})
-                                        DropdownMenuItem(text={Text("Удалить блок")},onClick={blockMenu=false;store.edit(note.copy(blocks=note.blocks.filterNot{it.id==block.id}))})
-                                    }
-                                }
-                            }
-                        }
-                        EditorLinks(block.text)
-                    }}
-                    val done=note.blocks.count{it.kind==NoteBlockKind.CHECK&&it.checked}
-                    if(done>0)TextButton({folded=!folded}){Text(if(folded)"Показать выполненные ($done)" else "Свернуть выполненные ($done)")}
-                }
-                Spacer(Modifier.fillMaxWidth().height((viewportHeight-contentHeight).coerceAtLeast(72.dp))
-                    .semantics{contentDescription="Продолжить заметку с новой строки"}
-                    .clickable(enabled=editable){focusBlank()})
-                }
-                }
-                if(editable)FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                    NoteBlockKind.entries.forEach{k->TextButton({store.edit(note.copy(blocks=note.blocks+NoteBlock(kind=k)))},enabled=note.blocks.size<200){Text("+ "+blockKindLabel(k),style=MaterialTheme.typography.labelSmall)}}
-                }
+                Text(if(store.error.isNotBlank())store.error else if(store.localSaving)"Сохраняем на телефоне…" else if(!editable && !store.moving(id))"Только просмотр" else if(store.moving(id))"Перенос ожидает сервера" else if(!group.shared)"Сохранено только на телефоне" else if(store.pending)"Сохранено на телефоне · отправляем" else "Сохранено",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                RichTextEditor(note.title,{value->store.notes.find{it.id==id}?.let{store.edit(it.copy(title=value,titleFormat=MARKDOWN_TEXT_FORMAT))}},Modifier.fillMaxWidth(),
+                    format=note.titleFormat,titleOnly=true,minLines=1,readOnly=!editable,maxLength=200,sourceLink=sourceDeepLink("note",note.id))
+                HorizontalDivider(Modifier.padding(vertical=6.dp),color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.4f))
+                RichTextEditor(note.body,{value->store.notes.find{it.id==id}?.let{store.edit(it.copy(markdown=value,textFormat=MARKDOWN_TEXT_FORMAT,blocks=emptyList()))}},Modifier.weight(1f).fillMaxWidth(),
+                    format=MARKDOWN_TEXT_FORMAT,readOnly=!editable,minLines=3,blankTapNewLine=true,maxLength=140000,collapsibleChecks=true,sourceLink=sourceDeepLink("note",note.id))
             }
-            LaunchedEffect(id){focus.requestFocus();keyboard?.hide()}
+            LaunchedEffect(id){initialFocus.requestFocus();keyboard?.hide()}
         }
     }
 }
-private fun blockKindLabel(kind:NoteBlockKind)=when(kind){NoteBlockKind.TEXT->"Текст";NoteBlockKind.HEADING->"Заголовок";NoteBlockKind.BULLET->"Список";NoteBlockKind.NUMBERED->"Нумерация";NoteBlockKind.CHECK->"Чек-лист"}
 
 /** A blank tap reuses a trailing empty line instead of accumulating blank paragraphs. */
 internal fun noteBlankLine(text:String)=if(text.isEmpty()||text.endsWith("\n"))text else text+"\n"
-
-@Composable private fun NoteBlockInput(block:NoteBlock,editable:Boolean,focusGeneration:Int?,modifier:Modifier,onBlank:()->Unit,onText:(String)->Unit) {
-    var value by rememberSaveable(block.id,stateSaver=TextFieldValue.Saver){mutableStateOf(TextFieldValue(block.text))}
-    val requester=remember{FocusRequester()}
-    val keyboard=LocalSoftwareKeyboardController.current
-    // Reconcile during composition: a delayed effect could overwrite newer IME keystrokes.
-    if(value.text!=block.text)value=TextFieldValue(block.text,TextRange(value.selection.end.coerceAtMost(block.text.length)))
-    LaunchedEffect(focusGeneration){if(focusGeneration!=null && editable){value=TextFieldValue(block.text,TextRange(block.text.length));requester.requestFocus();keyboard?.show()}}
-    Column(modifier.padding(top=8.dp)) {
-        BasicTextField(value,{next->val changed=next.text!=value.text;value=next;if(changed)onText(next.text)},
-            Modifier.fillMaxWidth().focusRequester(requester).semantics{contentDescription="Текст блока"},readOnly=!editable,
-            textStyle=(if(block.kind==NoteBlockKind.HEADING)MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge).copy(
-                lineHeight=28.sp,color=MaterialTheme.colorScheme.onSurface,fontWeight=if(block.bold)FontWeight.Bold else if(block.kind==NoteBlockKind.HEADING)FontWeight.SemiBold else FontWeight.Normal,
-                textDecoration=if(block.checked)TextDecoration.LineThrough else TextDecoration.None),
-            decorationBox={inner->Box{if(value.text.isEmpty())Text(if(block.kind==NoteBlockKind.TEXT)"Текст, ссылка…" else "Пункт…",color=MaterialTheme.colorScheme.onSurfaceVariant);inner()}})
-        Spacer(Modifier.fillMaxWidth().height(12.dp).clickable(enabled=editable,onClick=onBlank))
-    }
-}

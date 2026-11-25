@@ -59,6 +59,7 @@ fun EntryReminderSettings(entry: Entry, authUid: String, onChanged: () -> Unit =
     if(authUid.isBlank())return
     key(authUid,entry.id) {
         val context=LocalContext.current
+        val pickerContext=rememberPickerContext()
         val preferences=remember { ReminderPreferences(context) }
         var preference by remember { mutableStateOf(preferences.preference(authUid,entry.id)) }
         var minutes by remember { mutableStateOf(preference.minutesBefore.toString()) }
@@ -85,7 +86,7 @@ fun EntryReminderSettings(entry: Entry, authUid: String, onChanged: () -> Unit =
                     },label={Text("За сколько минут")},supportingText={Text("0 — в момент начала")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth())
                 } else OutlinedButton(onClick={
                     val time=LocalTime.parse(preference.dayTime)
-                    TimePickerDialog(context,{_,hour,minute->save(preference.copy(dayTime="%02d:%02d".format(java.util.Locale.ROOT,hour,minute)))},time.hour,time.minute,true).show()
+                    TimePickerDialog(pickerContext,{_,hour,minute->save(preference.copy(dayTime="%02d:%02d".format(java.util.Locale.ROOT,hour,minute)))},time.hour,time.minute,true).show()
                 },modifier=Modifier.fillMaxWidth()) { Text("В день события · ${preference.dayTime}") }
                 if(entry.invite==InviteState.PENDING)Text("Напоминание включится после принятия приглашения.",style=MaterialTheme.typography.bodySmall)
                 if(entry.done || entry.invite==InviteState.DECLINED)Text("Для выполненной или отменённой записи напоминание не запланировано.",style=MaterialTheme.typography.bodySmall)

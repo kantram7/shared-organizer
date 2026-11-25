@@ -19,12 +19,12 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun InvitationResponses(entry:Entry,viewer:Person,onAccept:()->Unit,onDecline:()->Unit,onPropose:()->Unit) {
     if(entry.canAccept(viewer))Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         Button(onAccept,Modifier.weight(1f).fillMaxHeight().semantics{contentDescription="Принять приглашение «${entry.title}»"},contentPadding=PaddingValues(horizontal=10.dp,vertical=10.dp)) {
-            Text(if(entry.proposal!=null)"Подтвердить изменения" else "Принять")
+            Text(if(entry.proposal!=null)"Подтвердить изменения" else "Принять",textAlign=androidx.compose.ui.text.style.TextAlign.Center)
         }
         OutlinedButton(onDecline,Modifier.weight(1f).fillMaxHeight(),contentPadding=PaddingValues(horizontal=10.dp,vertical=10.dp),
             colors=ButtonDefaults.outlinedButtonColors(contentColor=MaterialTheme.colorScheme.error,containerColor=MaterialTheme.colorScheme.errorContainer.copy(alpha=.25f)),
             border=BorderStroke(1.dp,MaterialTheme.colorScheme.error.copy(alpha=.3f))) {
-            Text(if(entry.proposal!=null)"Отклонить изменения" else "Отказаться")
+            Text(if(entry.proposal!=null)"Отклонить изменения" else "Отказаться",textAlign=androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
     if(entry.invite in listOf(InviteState.PENDING,InviteState.ACCEPTED) && entry.visibility==Visibility.SHARED)

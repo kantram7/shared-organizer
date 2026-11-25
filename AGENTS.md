@@ -10,3 +10,9 @@
 - Never push to any remote without the user's explicit approval for that push. Existing permission to edit or build is not permission to publish.
 - Testing sources, emulator scripts and documentation belong under `testing/`. Personal presets/reports belong in ignored `testing/local/`.
 - Use optional `KOTIKI_TEST_ASSETS` only for local debug builds. Never publish an APK containing a personal preset.
+
+# Test isolation
+
+- Emulator tests must use fresh test identities and an isolated test workspace containing synthetic data only. Never bind emulator identities to real users or load production records, chat history, notes, credentials, or personal presets into emulators.
+- Previous permission to test in the real workspace is revoked. Verify server-side cross-workspace access denial before running multi-device scenarios.
+- Delete only explicitly identified test-created records during cleanup; never infer deletions from a partial snapshot or blindly reset real users' read receipts.

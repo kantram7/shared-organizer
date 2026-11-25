@@ -2,6 +2,12 @@ package team.kotiki.app
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -13,6 +19,34 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+
+/** One vector is used for every disclosure, in every palette. */
+@Composable fun DisclosureIcon(expanded:Boolean=false,modifier:Modifier=Modifier) {
+    Icon(painterResource(R.drawable.ic_disclosure_more),null,modifier.size(14.dp).graphicsLayer{rotationZ=if(expanded)180f else 0f})
+}
+
+/** Auth snow is independent of the in-app pause control. The overlay never consumes input. */
+@Composable fun WinterAuthSurface(modifier:Modifier=Modifier,fill:Boolean=true,content:@Composable BoxScope.()->Unit) {
+    Box(if(fill)modifier.fillMaxSize()else modifier) {
+        if(winterDesignEnabled())WinterAuthBackdrop(Modifier.matchParentSize())
+        content()
+        WinterSnow(Modifier.matchParentSize(),force=true)
+    }
+}
+
+@Composable private fun WinterAuthBackdrop(modifier:Modifier=Modifier) {
+    Canvas(modifier) {
+        drawRect(Brush.verticalGradient(listOf(Color(0xFFF7FBFF),Color(0xFFE5F1FB),Color(0xFFD4E7F4))))
+        val w=size.width;val h=size.height
+        // Quiet frosted branches at the bottom, different from the app's forest scene.
+        listOf(.06f to .17f,.91f to .22f,.80f to .12f).forEach{(x,height)->
+            val tree=Path().apply{moveTo(w*x,h*(1-height));lineTo(w*(x-.09f),h*.99f);lineTo(w*(x+.09f),h*.99f);close()}
+            drawPath(tree,Color(0xFF9EBFD6).copy(alpha=.23f))
+        }
+        drawOval(Color.White.copy(alpha=.80f),Offset(-w*.3f,h*.91f),androidx.compose.ui.geometry.Size(w*1.2f,h*.18f))
+        drawOval(Color(0xFFF3FAFF).copy(alpha=.9f),Offset(w*.25f,h*.94f),androidx.compose.ui.geometry.Size(w*1.1f,h*.14f))
+    }
+}
 
 /** Stable per record ID, irrespective of edits, filters, scrolling or process restarts. */
 internal data class Icicle(val left:Float,val width:Float,val height:Float)

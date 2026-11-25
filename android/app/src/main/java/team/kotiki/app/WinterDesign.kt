@@ -23,33 +23,29 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlin.math.cos
 import kotlin.math.sin
 
 internal fun winterDesignAllowed(debug:Boolean,preview:Boolean,remoteEnabled:Boolean=false)=(debug && preview) || remoteEnabled
-class WinterDesignState(val enabled:Boolean=winterDesignAllowed(BuildConfig.DEBUG,BuildConfig.WINTER_PREVIEW)) {
-    var snow by mutableStateOf(true)
+internal fun winterSnowVisible(enabled:Boolean,userSnow:Boolean,force:Boolean)=enabled && (userSnow || force)
+class WinterDesignState(val enabled:Boolean=winterDesignAllowed(BuildConfig.DEBUG,BuildConfig.WINTER_PREVIEW),initialSnow:Boolean=true,private val onSnowChanged:(Boolean)->Unit={}) {
+    private var snowValue by mutableStateOf(initialSnow)
+    var snow:Boolean
+        get()=snowValue
+        set(value){snowValue=value;onSnowChanged(value)}
 }
 val LocalWinterDesign=staticCompositionLocalOf<WinterDesignState?>{null}
 @Composable fun winterDesignEnabled()=LocalWinterDesign.current?.enabled==true
 
 internal val WinterColors=lightColorScheme(
-    primary=Color(0xFF75508C),onPrimary=Color.White,primaryContainer=Color(0xFFEEE7F6),onPrimaryContainer=Color(0xFF543368),
-    background=Color(0xFFF4F7FB),onBackground=Color(0xFF354355),surface=Color.White,onSurface=Color(0xFF354355),
-    surfaceVariant=Color(0xFFEAF0F7),onSurfaceVariant=Color(0xFF64758B),outlineVariant=Color(0xFFDCE5EF),
-    secondary=Color(0xFF4D7281),secondaryContainer=Color(0xFFE8F1F2),onSecondaryContainer=Color(0xFF355766),
+    primary=Color(0xFF2866A5),onPrimary=Color.White,primaryContainer=Color(0xFFCDE3F5),onPrimaryContainer=Color(0xFF214F78),
+    background=Color(0xFFEDF5FC),onBackground=Color(0xFF203E58),surface=Color(0xFFF7FBFF),onSurface=Color(0xFF203E58),
+    surfaceVariant=Color(0xFFDFEDF7),onSurfaceVariant=Color(0xFF405F78),outline=Color(0xFF8BA7BC),outlineVariant=Color(0xFFBED8EB),
+    secondary=Color(0xFF3D789B),secondaryContainer=Color(0xFFCFE6F7),onSecondaryContainer=Color(0xFF244B68),
 )
-
-@Composable fun WinterBanner() {
-    val state=LocalWinterDesign.current ?: return
-    if(!state.enabled)return
-    TextButton({state.snow=!state.snow},contentPadding=PaddingValues(0.dp),
-        modifier=Modifier.heightIn(min=32.dp).testTag("winter-snow-toggle")) {
-        Text(if(state.snow)"Ⅱ  Снег идёт" else "▷  Снег на паузе",fontSize=12.sp,color=Color(0xFF55758C))
-    }
-}
 
 @Composable fun WinterForest(modifier:Modifier=Modifier) {
     if(!winterDesignEnabled())return
@@ -61,16 +57,15 @@ internal data class SnowParticle(val x:Float,val phase:Float,val seconds:Float,v
 internal val winterParticles=List(32){i->SnowParticle(((i*37)%96+2)/100f,((i*23)%100)/100f,18f+(i*7%15),3f+(i%4),i%3==0)}
 internal fun snowProgress(seconds:Float,particle:SnowParticle):Float=((seconds/particle.seconds+particle.phase)%1f+1f)%1f
 
-@Composable fun WinterSnow(modifier:Modifier=Modifier) {
+@Composable fun WinterSnow(modifier:Modifier=Modifier,force:Boolean=false) {
     val design=LocalWinterDesign.current ?: return
-    if(!design.enabled || !design.snow)return
-    val context=LocalContext.current
-    val lifecycle=remember(context){(context as? androidx.activity.ComponentActivity)?.lifecycle}
-    var foreground by remember {mutableStateOf(lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED)==true)}
+    if(!winterSnowVisible(design.enabled,design.snow,force))return
+    val lifecycle=LocalLifecycleOwner.current.lifecycle
+    var foreground by remember {mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)==true)}
     DisposableEffect(lifecycle) {
-        val observer=LifecycleEventObserver {_,_->foreground=lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED)==true}
-        lifecycle?.addObserver(observer)
-        onDispose{lifecycle?.removeObserver(observer)}
+        val observer=LifecycleEventObserver {_,_->foreground=lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)==true}
+        lifecycle.addObserver(observer)
+        onDispose{lifecycle.removeObserver(observer)}
     }
     val elapsed=remember {mutableFloatStateOf(0f)}
     LaunchedEffect(foreground) {

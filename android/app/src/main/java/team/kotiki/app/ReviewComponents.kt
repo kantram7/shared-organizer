@@ -21,13 +21,14 @@ import androidx.compose.ui.unit.dp
     var confirming by mutableStateOf(false)
 }
 @Composable fun rememberItemMenu()=remember {ItemMenuState()}
+val LocalMoveRecordWeek=staticCompositionLocalOf<(Entry)->Unit>{{}}
 val LocalRecordDelete=staticCompositionLocalOf<(Entry)->Unit>{{}}
 val LocalRecordCanDelete=staticCompositionLocalOf<(Entry)->Boolean>{{false}}
 
 @Composable fun ItemActions(title:String,onDelete:(()->Unit)?,state:ItemMenuState=rememberItemMenu(),
     onEdit:(()->Unit)?=null,onOpen:(()->Unit)?=null,
-    deleteMessage:String="Запись будет удалена. Продолжить?",compactGear:Boolean=false,onCopy:(()->Unit)?=null) {
-    if(onDelete==null && onEdit==null && onOpen==null && onCopy==null)return
+    deleteMessage:String="Запись будет удалена. Продолжить?",compactGear:Boolean=false,onCopy:(()->Unit)?=null,onMoveWeek:(()->Unit)?=null) {
+    if(onDelete==null && onEdit==null && onOpen==null && onCopy==null && onMoveWeek==null)return
     val actionColor=MaterialTheme.colorScheme.primary
     Box {
         IconButton({state.expanded=true},Modifier.size(if(compactGear)40.dp else 48.dp).semantics{contentDescription="Действия: $title"}) {
@@ -37,6 +38,7 @@ val LocalRecordCanDelete=staticCompositionLocalOf<(Entry)->Boolean>{{false}}
             }
         }
         DropdownMenu(state.expanded,{state.expanded=false}) {
+            onMoveWeek?.let{DropdownMenuItem(text={Text("Перенести на неделю")},onClick={state.expanded=false;it()})}
             onCopy?.let{DropdownMenuItem(text={Text("Копировать")},onClick={state.expanded=false;it()})}
             onOpen?.let{DropdownMenuItem(text={Text("Подробнее")},onClick={state.expanded=false;it()})}
             onEdit?.let{DropdownMenuItem(text={Text("Редактировать")},onClick={state.expanded=false;it()})}
@@ -50,5 +52,6 @@ val LocalRecordCanDelete=staticCompositionLocalOf<(Entry)->Boolean>{{false}}
 }
 @Composable fun RecordActions(entry:Entry,state:ItemMenuState,onOpen:(Entry)->Unit) {
     val delete=LocalRecordDelete.current
-    ItemActions(entry.title,if(LocalRecordCanDelete.current(entry)){{delete(entry)}}else null,state,onOpen={onOpen(entry)})
+    val move=LocalMoveRecordWeek.current
+    ItemActions(entry.title,if(LocalRecordCanDelete.current(entry)){{delete(entry)}}else null,state,onOpen={onOpen(entry)},onMoveWeek=if(entry.date==null && entry.canEdit(LocalDemoIdentity.current.viewer)){{move(entry)}}else null)
 }

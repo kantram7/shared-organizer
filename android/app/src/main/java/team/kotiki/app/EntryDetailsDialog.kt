@@ -27,8 +27,8 @@ import androidx.compose.ui.window.DialogProperties
                     IconButton(onClose,Modifier.semantics{contentDescription="Закрыть событие"}){KotikiIcon(Glyph.CLOSE)}
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                    DetailField("Название",entry.title)
-                    if(entry.note.isNotBlank())DetailField("Описание",entry.note)
+                    DetailField("Название",entry.title,entry.titleFormat)
+                    if(entry.note.isNotBlank())DetailField("Описание",entry.note,entry.descriptionFormat)
                     Text("Участники",style=MaterialTheme.typography.titleSmall)
                     FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         (if(entry.who==Person.BOTH)listOf(Person.USER_1,Person.USER_2)else listOf(entry.who)).forEach{person->
@@ -56,11 +56,11 @@ import androidx.compose.ui.window.DialogProperties
     }
 }
 
-@Composable private fun DetailField(label:String,value:String) {
+@Composable private fun DetailField(label:String,value:String,format:String=PLAIN_TEXT_FORMAT) {
     Box(Modifier.fillMaxWidth().padding(top=8.dp)) {
         Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.extraSmall,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),color=layeredSurface(if(winterDesignEnabled()).55f else .72f)) {
             Box(Modifier.heightIn(min=64.dp).padding(horizontal=14.dp,vertical=16.dp),contentAlignment=Alignment.CenterStart) {
-                LinkText(value,style=MaterialTheme.typography.bodyLarge)
+                LinkText(value,style=MaterialTheme.typography.bodyLarge,format=format)
             }
         }
         Text(label,Modifier.padding(start=10.dp).offset(y=(-8).dp).background(MaterialTheme.colorScheme.surface).padding(horizontal=4.dp),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

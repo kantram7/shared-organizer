@@ -1,0 +1,38 @@
+<resources>
+    <style name="KotikiPickerLight" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#75508C</item>
+        <item name="android:colorControlActivated">#75508C</item>
+        <item name="android:colorControlNormal">#716779</item>
+        <item name="android:colorBackground">#FAF7F3</item>
+        <item name="android:colorBackgroundFloating">#FAF7F3</item>
+        <item name="android:textColorPrimary">#302B36</item>
+        <item name="android:textColorSecondary">#716779</item>
+        <item name="android:textColorPrimaryInverse">#FFFFFF</item>
+        <item name="android:datePickerDialogTheme">@style/KotikiPickerLight</item>
+        <item name="android:timePickerDialogTheme">@style/KotikiPickerLight</item>
+    </style>
+    <style name="KotikiPickerDark" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#DAC0EE</item>
+        <item name="android:colorControlActivated">#DAC0EE</item>
+        <item name="android:colorControlNormal">#BBB0C4</item>
+        <item name="android:colorBackground">#2B2630</item>
+        <item name="android:colorBackgroundFloating">#2B2630</item>
+        <item name="android:textColorPrimary">#F7EFF8</item>
+        <item name="android:textColorSecondary">#BBB0C4</item>
+        <item name="android:textColorPrimaryInverse">#36213F</item>
+        <item name="android:datePickerDialogTheme">@style/KotikiPickerDark</item>
+        <item name="android:timePickerDialogTheme">@style/KotikiPickerDark</item>
+    </style>
+    <style name="KotikiPickerWinter" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#2866A5</item>
+        <item name="android:colorControlActivated">#2866A5</item>
+        <item name="android:colorControlNormal">#526F87</item>
+        <item name="android:colorBackground">#F0F7FC</item>
+        <item name="android:colorBackgroundFloating">#F0F7FC</item>
+        <item name="android:textColorPrimary">#203E58</item>
+        <item name="android:textColorSecondary">#526F87</item>
+        <item name="android:textColorPrimaryInverse">#FFFFFF</item>
+        <item name="android:datePickerDialogTheme">@style/KotikiPickerWinter</item>
+        <item name="android:timePickerDialogTheme">@style/KotikiPickerWinter</item>
+    </style>
+</resources>

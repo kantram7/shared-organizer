@@ -1,0 +1,8 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // All attachment requests go through authenticated callable authorization.
+    // Short-lived GCS signatures are constrained to one immutable object and byte count.
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

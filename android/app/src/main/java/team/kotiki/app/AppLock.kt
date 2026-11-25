@@ -14,12 +14,15 @@ import android.util.AtomicFile
 import android.util.Base64
 import android.view.WindowManager
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -269,8 +272,8 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
         // Keep launchers and pending OAuth state mounted while external Android UI is open.
         RetainedForegroundContent(foreground) {
             when {
-                lock.damaged || lock.initialized && lock.enabled && !lock.unlocked->UnlockPanel(lock,foreground)
-                !lock.initialized || lock.needsNewPin->LockSetup(lock)
+                lock.damaged || lock.initialized && lock.enabled && !lock.unlocked->if(lock.damaged || lock.legacyPin)WinterAuthSurface{UnlockPanel(lock,foreground)}else UnlockPanel(lock,foreground)
+                !lock.initialized || lock.needsNewPin->WinterAuthSurface{LockSetup(lock)}
                 else->screenState.SaveableStateProvider(authUid){content()}
             }
         }
@@ -327,26 +330,35 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
 }
 @Composable private fun RecoveryDialog(lock:AppLockController,onDismiss:()->Unit){
     var password by remember{mutableStateOf("")};var error by remember{mutableStateOf<String?>(null)}
-    AlertDialog(properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),onDismissRequest={if(!lock.busy)onDismiss()},title={Text("Восстановить доступ")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
-        Text("Подтверди пароль этого Firebase-аккаунта. Затем задай новый PIN. Облачные записи сохранятся.")
-        OutlinedTextField(password,{password=it},label={Text("Пароль аккаунта")},singleLine=true,visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password))
-        error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-    }},confirmButton={TextButton(enabled=password.isNotEmpty() && !lock.busy,onClick={val attempt=password;password="";lock.recover(attempt){error=it;if(it==null)onDismiss()}}){Text("Подтвердить аккаунт")}},dismissButton={TextButton(onClick=onDismiss,enabled=!lock.busy){Text("Отмена")}})
+    androidx.compose.ui.window.Dialog(onDismissRequest={if(!lock.busy)onDismiss()},properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false)) {
+        Surface(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().padding(20.dp),shape=MaterialTheme.shapes.extraLarge) {
+            WinterAuthSurface(fill=false) {
+                Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Text("Восстановить доступ",style=MaterialTheme.typography.titleLarge)
+                    Text("Подтверди пароль этого Firebase-аккаунта. Затем задай новый PIN. Облачные записи сохранятся.")
+                    OutlinedTextField(password,{password=it},Modifier.fillMaxWidth(),label={Text("Пароль аккаунта")},singleLine=true,visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password))
+                    error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+                    Button(enabled=password.isNotEmpty() && !lock.busy,onClick={val attempt=password;password="";lock.recover(attempt){error=it;if(it==null)onDismiss()}},modifier=Modifier.fillMaxWidth()){Text("Подтвердить аккаунт")}
+                    TextButton(onClick=onDismiss,enabled=!lock.busy,modifier=Modifier.fillMaxWidth()){Text("Отмена")}
+                }
+            }
+        }
+    }
 }
 @Composable private fun LockSetup(lock:AppLockController,embedded:Boolean=false,onDone:(()->Unit)?=null){
     val context=LocalContext.current;val scope=rememberCoroutineScope()
     var pin by remember{mutableStateOf("")};var confirm by remember{mutableStateOf("")}
     var enabled by remember{mutableStateOf(true)};var bio by remember{mutableStateOf(true)}
     var error by remember{mutableStateOf<String?>(null)}
-    Column(Modifier.fillMaxWidth().imePadding().then(if(embedded)Modifier else Modifier.verticalScroll(rememberScrollState())).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    Column(Modifier.fillMaxWidth().imePadding().then(if(embedded)Modifier else Modifier.safeDrawingPadding().verticalScroll(rememberScrollState())).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         Text(if(lock.needsNewPin)"Задай новый PIN" else if(lock.initialized)"Изменить PIN" else "Защити наше пространство",style=MaterialTheme.typography.titleLarge)
         Text("PIN хранится только на этом устройстве. Это отдельный код, не пароль облачного аккаунта.")
-        Row{Checkbox(enabled,{enabled=it});Text("Вход по PIN")}
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).toggleable(value=enabled,role=Role.Checkbox,onValueChange={enabled=it}),verticalAlignment=Alignment.CenterVertically){Checkbox(enabled,null);Text("Вход по PIN",Modifier.weight(1f))}
         if(lock.needsNewPin)Text("Обновлённые правила: только 4–6 цифр. Меняется лишь локальный PIN; аккаунт, записи и заметки сохраняются.")
         if(enabled){
             Text("Только цифры. Длина PIN — от 4 до 6 цифр.",color=MaterialTheme.colorScheme.primary)
             PinInput(pin,{pin=it},"Новый PIN: 4–6 цифр");PinInput(confirm,{confirm=it},"Повтори PIN")
-            Row{Checkbox(bio,{bio=it});Text("Вход по биометрии")}
+            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).toggleable(value=bio,role=Role.Checkbox,onValueChange={bio=it}),verticalAlignment=Alignment.CenterVertically){Checkbox(bio,null);Text("Вход по биометрии",Modifier.weight(1f))}
         }
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         Button(enabled=!lock.busy && (!enabled || PinPolicy.valid(pin) && pin==confirm),onClick={
@@ -385,7 +397,7 @@ private val LocalAppLock=staticCompositionLocalOf<AppLockController?>{null}
                 Button(enabled=!lock.busy && PinPolicy.valid(pin),onClick={val attempt=pin;pin="";scope.launch{error=lock.verify(attempt);if(error==null)verified=true}}){Text("Подтвердить PIN")}
             }else{
                 if(lock.enabled){
-                    Row{
+                    Row(verticalAlignment=Alignment.CenterVertically){
                         Checkbox(lock.biometric,{checked->if(checked)lock.authenticateBiometric(context,true){error=it} else error=lock.changeOptions(false)})
                         Text("Вход по биометрии")
                     }

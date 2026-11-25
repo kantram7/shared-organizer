@@ -1,31 +1,9 @@
-Push через Firebase Spark и Cloudflare Workers
+Cloudflare push sender retired in 0.3.6
 
-Android пишет уведомительное событие в spaces/{space}/pushQueue атомарно с изменением записи или сообщением чата. Клиент не может читать, изменять или удалять очередь. Сохранение без сети отправится после восстановления связи.
+Production handover: 2026-11-25T04:07:00Z. Firebase Gen2 Functions now process original message/revision events; see ../functions/README.md.
 
-Worker вызывается Cron Trigger раз в минуту. HTTP-маршрут отключён (workersDev:false); Firebase ID-токены клиентов в Cloudflare не передаются. Для доступа к Firestore и FCM используется отдельный служебный аккаунт с четырьмя правами: cloudmessaging.messages.create, datastore.entities.get, datastore.entities.list, datastore.entities.delete. Его ключ хранится только в Cloudflare secret binding и игнорируемом локальном файле администратора.
+cloudflare.config.ts deliberately points to retired-worker.mjs, with no cron and no credential bindings. HTTP returns health or 410; scheduled callbacks perform no work. Ordinary deploy must never restore the old sender. setup-account.cjs is disabled so it cannot recreate a retired signing key.
 
-Настройка
-1. Установить зависимости package-lock.json современным Node.js/npm в отдельное окружение. Не добавлять node_modules и runtime-кэши в Git.
-2. Настроить проект Firebase и два разрешённых аккаунта согласно docs/firebase.txt. Создать служебный push-аккаунт и минимальную роль через setup-account.cjs, передав путь к локальной папке workspace.json. Скрипт требует административной авторизации Firebase CLI; KOTIKI_FIREBASE_TOOLS указывает на отдельную установку firebase-tools.
-3. Войти в официальный cf CLI. При необходимости активировать бесплатный workers.dev subdomain в Cloudflare dashboard: Cron Trigger требует его наличия даже при отключённом публичном URL Worker.
-4. Собрать и проверить cf deploy --dry-run. Секреты GOOGLE_SERVICE_ACCOUNT (JSON-строка ключа), FIREBASE_PROJECT и SPACE_ID передать при cf deploy --secrets-file <локальный файл>. Не вводить значения секретов аргументами команд и не выводить их в лог.
-5. На Android разрешить уведомления и убедиться, что Настройки показывают успешную регистрацию устройства. На устройстве нужны работающие сервисы Google.
-6. Проверить настоящую доставку при свёрнутом приложении, переход после PIN в правильную запись/чат и поведение на физических телефонах. Force-stop Android блокирует дальнейшую работу приложения до его ручного открытия.
+worker.mjs and LEGACY-README.txt are retained only as historical migration/test evidence, not an active deployment recipe. The dedicated Worker key and its three secret bindings were revoked/removed after draining pre-boundary items. Firebase Functions use a separate keyless runtime identity.
 
-Поведение и ограничения
-- До трёх событий за вызов, ограничение 45 внешних запросов и 25 секунд ожидания. Очередь обрабатывается от ранних событий к поздним. Под нагрузкой задержка увеличивается; это не мгновенная доставка и не гарантия конкретного времени.
-- Изменения приватных записей и содержание сообщений не включаются в push. Уведомление содержит общую формулировку и идентификатор для открытия приложения.
-- Текущий участник, реальный authenticated UID, срок действия делегата, актуальная ревизия и доступность родительской записи чата проверяются перед отправкой. Повторная доставка после временного сбоя возможна; Android подавляет повторы по eventId.
-- До восьми регистраций устройств. При превышении очередь сохраняется, истёкшие делегаты очищаются; лишние действующие регистрации требуют удаления администратором.
-- События старше суток и заменённые ревизии удаляются из уведомительной очереди. Данные органайзера и история при этом остаются.
-- CPU Free ограничен 10 мс на вызов. Успешное отдельное выполнение с большим CPU использует резерв платформы и не доказывает надёжность постоянного превышения. Следить за outcome exceededCpu и задержкой очереди; платный тариф автоматически не подключается.
-- Локальные напоминания планирует Android отдельно от этой очереди. Без разрешения точных будильников используется неточное расписание; настройки батареи производителя могут задерживать фоновые действия.
-- Бесшумный push обновляет локальные напоминания после изменения записи. При выключенном телефоне/сети старое расписание может оставаться до синхронизации.
-
-Проверки: из backend/push выполнить npm test (тесты находятся в testing/push). Реальная доставка и CPU проверяются отдельно по наблюдениям устройств и Cloudflare Logs. Логи содержат только счётчики, класс ошибки и строку кода, без токенов и содержимого пользовательских записей.
-
-Официальные источники
-https://developers.cloudflare.com/workers/platform/limits/
-https://developers.cloudflare.com/workers/runtime-apis/request/
-https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet
-https://firebase.google.com/docs/cloud-messaging/send/v1-api
+Old APKs may still atomically write pushQueue. Rules continue accepting those compatible writes; createdAt TTL removes the redundant queue documents without FCM. TTL deletes only queue records, not organizer data, and is asynchronous (typically within 24 hours, billed Firestore deletes). No manual server queue polling remains.

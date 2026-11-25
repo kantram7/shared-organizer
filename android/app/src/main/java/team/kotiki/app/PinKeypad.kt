@@ -16,9 +16,10 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun PinKeypad(pin:String,length:Int,enabled:Boolean,biometric:Boolean,onDigit:(String)->Unit,onBackspace:()->Unit,
     onBiometric:()->Unit,onRecover:()->Unit,error:String?) {
+    WinterAuthSurface {
     Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal=28.dp,vertical=24.dp),
         horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        BrandMark(Modifier.size(108.dp))
+        WinterBrandMark(Modifier.size(108.dp))
         Text("С возвращением",style=MaterialTheme.typography.headlineSmall)
         Text("Разблокируй Kotiki team",color=MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.padding(vertical=14.dp).semantics{contentDescription="PIN из $length цифр, введено ${pin.length}"},horizontalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -44,5 +45,6 @@ import androidx.compose.ui.unit.dp
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         Text(if(biometric)"PIN или биометрия" else "Введи PIN",color=MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onRecover,enabled=enabled){Text("Забыл PIN")}
+    }
     }
 }

@@ -35,6 +35,8 @@ data class Entry(
     val isGathering: Boolean = false,
     val proposal: InviteProposal? = null,
     val proposalResponseId: String = "",
+    val titleFormat:String = "plain-v1",
+    val descriptionFormat:String = "plain-v1",
 ) : java.io.Serializable {
     val isTentative: Boolean get() = invite == InviteState.PENDING
     val isDayTask: Boolean get() = kind == Kind.TASK && start.isEmpty()
@@ -48,7 +50,7 @@ data class Entry(
     fun canAccept(viewer:Person):Boolean = InviteWorkflow.responder(this)==viewer && visibleTo(viewer)
     fun canEdit(viewer: Person = Person.USER_1): Boolean = (owner == viewer || (visibility == Visibility.SHARED && editable)) && invite == InviteState.NONE
 }
-data class CollectionItem(val id: String, val title: String, val checked: Boolean = false, val description: String = "")
+data class CollectionItem(val id: String, val title: String, val checked: Boolean = false, val description: String = "", val titleFormat:String="plain-v1", val descriptionFormat:String="plain-v1")
 data class DemoCollection(val id: String, val name: String, val shared: Boolean = true, val items: List<CollectionItem> = emptyList(), val owner: Person = Person.USER_1, val updatedAt: Long = 0L)
 
 fun mondayOf(date: LocalDate): LocalDate = date.with(DayOfWeek.MONDAY)

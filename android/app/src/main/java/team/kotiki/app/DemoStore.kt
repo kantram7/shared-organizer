@@ -47,7 +47,7 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     val entries = mutableStateListOf<Entry>()
     val plans = mutableStateListOf<DemoCollection>()
     val lists = mutableStateListOf<DemoCollection>()
-    var theme by mutableStateOf(prefs.getString("theme", preset?.theme ?: "light") ?: "light")
+    var theme by mutableStateOf((prefs.getString("theme", preset?.theme ?: AppAppearance.read(context)) ?: "light").also{AppAppearance.save(context,it)})
         private set
     var retentionDays by mutableStateOf(prefs.getInt("retention", preset?.retentionDays ?: 7))
         private set
@@ -69,6 +69,7 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     fun preparePlanChat(){save()}
     var cloudReady by mutableStateOf(false)
     var onCloudSave:((StoreContent)->Unit)?=null
+    var onCloudDelete:((String)->Unit)?=null
     var cloudHistory:((String,(List<String>)->Unit)->Unit)?=null
     fun receiveCloud(content:StoreContent) {
         entries.clear();entries.addAll(content.entries)
@@ -121,19 +122,20 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
     fun updateBoardOverview(value: Boolean) { boardOverview=value; prefs.edit().putBoolean("boardOverview",value).apply() }
     fun dismissUndo(action: UndoAction) { if(undoAction === action) undoAction=null }
     fun restore(action: UndoAction) { action.restore(); dismissUndo(action); save() }
-    fun canDelete(entry: Entry): Boolean = (cloudSession==null || entry.invite==InviteState.NONE || entry.owner==viewer) && entry.visibleTo(viewer) && (entry.owner==viewer || (entry.visibility==Visibility.SHARED && entry.editable))
+    fun canDelete(entry: Entry): Boolean = (cloudSession==null || entry.owner==viewer) && entry.visibleTo(viewer) && (entry.owner==viewer || (entry.visibility==Visibility.SHARED && entry.editable))
     fun deleteEntry(entry: Entry) {
         val original=entries.find { it.id==entry.id } ?: return
         if(!canDelete(original))return
         val index=entries.indexOf(original)
-        entries.remove(original); save()
+        entries.remove(original); onCloudDelete?.invoke("entry_${original.id}"); save()
         undoAction=UndoAction("Запись удалена") { if(entries.none { it.id==original.id }) entries.add(index.coerceAtMost(entries.size),original) }
     }
     fun deleteCollection(isPlans: Boolean,id: String) {
         val target=if(isPlans)plans else lists
         val original=target.find { it.id==id && (it.shared || it.owner==viewer) } ?: return
         val index=target.indexOf(original)
-        target.remove(original); save()
+        if(cloudSession!=null && original.owner!=viewer)return
+        target.remove(original); onCloudDelete?.invoke("${if(isPlans)"plan" else "list"}_${original.id}"); save()
         undoAction=UndoAction(if(isPlans)"Тема удалена" else "Список удалён") { if(target.none { it.id==id }) target.add(index.coerceAtMost(target.size),original) }
     }
     fun deleteItem(isPlans: Boolean,id: String,itemId: String) {
@@ -187,16 +189,16 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
         if (entry.kind != Kind.TASK || !entry.canEdit(viewer)) return
         upsert(entry.copy(done = !entry.done))
     }
-    fun updateTheme(value: String) { theme = value; prefs.edit().putString("theme", value).apply() }
+    fun updateTheme(value: String) { theme = value; prefs.edit().putString("theme", value).apply();AppAppearance.save(appContext,value) }
     fun updateRetention(value: Int) { retentionDays = value.coerceIn(1, 365); prefs.edit().putInt("retention", retentionDays).apply() }
     fun addCollection(isPlans: Boolean, name: String, shared: Boolean) {
         (if (isPlans) plans else lists).add(DemoCollection(newId(), name.trim(), isPlans || shared, owner = viewer, updatedAt=nextEdit())); save()
     }
-    fun addItem(isPlans: Boolean, id: String, title: String, description:String="") {
+    fun addItem(isPlans: Boolean, id: String, title: String, description:String="",titleFormat:String="markdown-v1",descriptionFormat:String="markdown-v1") {
         val target = if (isPlans) plans else lists
         val index = target.indexOfFirst { it.id == id }
         if (index < 0) return
-        target[index] = target[index].copy(items = target[index].items + CollectionItem(newId(), title.trim(), description=description.trim().take(4000)),updatedAt=nextEdit())
+        target[index] = target[index].copy(items = target[index].items + CollectionItem(newId(), title.trim(), description=description.trim().take(4000),titleFormat=titleFormat,descriptionFormat=descriptionFormat),updatedAt=nextEdit())
         save()
     }
     fun updateItem(isPlans:Boolean,collectionId:String,itemId:String,title:String,description:String="") {
@@ -204,7 +206,7 @@ class DemoStore(context: Context, selectedUser: Person? = null, val cloudSession
         val index=target.indexOfFirst{it.id==collectionId && (it.shared || it.owner==viewer)}
         if(index<0 || title.isBlank())return
         target[index]=target[index].copy(items=target[index].items.map {
-            if(it.id==itemId)it.copy(title=title.trim().take(100),description=description.trim().take(4000)) else it
+            if(it.id==itemId)it.copy(title=title.trim().take(100),description=description.trim().take(4000),titleFormat="markdown-v1",descriptionFormat="markdown-v1") else it
         },updatedAt=nextEdit());save()
     }
     fun toggleItem(listId: String, itemId: String) {
@@ -228,6 +230,7 @@ private fun collection(id: String, name: String, shared: Boolean, vararg titles:
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 private fun JSONObject.date(key: String): LocalDate? = optString(key).takeIf { it.isNotEmpty() }?.let(LocalDate::parse)
 internal fun writeEntry(e: Entry) = JSONObject().apply {
+    put("titleFormat",e.titleFormat); put("descriptionFormat",e.descriptionFormat);
     put("id", e.id); put("title", e.title); put("date", e.date?.toString() ?: ""); put("week", e.week.toString())
     put("lastDate", e.lastDate?.toString() ?: ""); put("start", e.start); put("end", e.end); put("kind", e.kind.name)
     put("who", e.who.name); put("owner", e.owner.name); put("visibility", e.visibility.name); put("editable", e.editable)
@@ -236,20 +239,23 @@ internal fun writeEntry(e: Entry) = JSONObject().apply {
     if(e.proposalResponseId.isNotEmpty())put("proposalResponseId",e.proposalResponseId)
     e.proposal?.let { p -> put("proposal", JSONObject().put("id",p.id).put("proposedBy",p.proposedBy.name)
         .put("title",p.title).put("date",p.date.toString()).put("lastDate",p.lastDate.toString())
-        .put("start",p.start).put("end",p.end).put("note",p.note)) }
+        .put("start",p.start).put("end",p.end).put("note",p.note)
+        .put("titleFormat",p.titleFormat).put("descriptionFormat",p.descriptionFormat)) }
 }
 internal fun decodePerson(value: String, aliases: Map<String, String> = emptyMap()): Person =
     Person.valueOf(aliases[value] ?: value)
 internal fun readEntry(j: JSONObject, roleAliases: Map<String, String>) = Entry(
+    titleFormat=j.optString("titleFormat","plain-v1"), descriptionFormat=j.optString("descriptionFormat","plain-v1"),
     id = j.getString("id"), title = j.getString("title"), date = j.date("date"), week = LocalDate.parse(j.getString("week")),
     lastDate = j.date("lastDate"), start = j.optString("start"), end = j.optString("end"), kind = Kind.valueOf(j.getString("kind")),
     who = decodePerson(j.getString("who"), roleAliases), owner = decodePerson(j.getString("owner"), roleAliases), visibility = Visibility.valueOf(j.getString("visibility")),
     editable = j.optBoolean("editable", true), done = j.optBoolean("done"), note = j.optString("note"),
     invite = InviteState.valueOf(j.optString("invite", "NONE")), incoming = j.optBoolean("incoming"), resolvedDay = j.date("resolvedDay"), isGathering = j.optBoolean("isGathering",false), proposalResponseId = j.optString("proposalResponseId"),
     proposal = j.optJSONObject("proposal")?.let { p -> InviteProposal(p.getString("id"),Person.valueOf(p.getString("proposedBy")),
-        p.getString("title"),LocalDate.parse(p.getString("date")),LocalDate.parse(p.getString("lastDate")),p.getString("start"),p.getString("end"),p.getString("note")) },
+        p.getString("title"),LocalDate.parse(p.getString("date")),LocalDate.parse(p.getString("lastDate")),p.getString("start"),p.getString("end"),p.getString("note"),
+        p.optString("titleFormat",PLAIN_TEXT_FORMAT),p.optString("descriptionFormat",PLAIN_TEXT_FORMAT)) },
 )
 internal fun writeCollection(c: DemoCollection) = JSONObject().put("id", c.id).put("name", c.name).put("shared", c.shared).put("owner", c.owner.name).put("updatedAt", c.updatedAt).put("itemIds",JSONArray(c.items.map{it.id}))
-    .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked).put("description",it.description) }))
+    .put("items", JSONArray(c.items.map { JSONObject().put("id", it.id).put("title", it.title).put("checked", it.checked).put("description",it.description).put("titleFormat",it.titleFormat).put("descriptionFormat",it.descriptionFormat) }))
 internal fun readCollection(j: JSONObject) = DemoCollection(j.getString("id"), j.getString("name"), j.getBoolean("shared"),
-    j.getJSONArray("items").objects().map { CollectionItem(it.getString("id"), it.getString("title"), it.optBoolean("checked"),it.optString("description","")) }, Person.valueOf(j.optString("owner", "USER_1")),j.optLong("updatedAt",0))
+    j.getJSONArray("items").objects().map { CollectionItem(it.getString("id"), it.getString("title"), it.optBoolean("checked"),it.optString("description",""),it.optString("titleFormat","plain-v1"),it.optString("descriptionFormat","plain-v1")) }, Person.valueOf(j.optString("owner", "USER_1")),j.optLong("updatedAt",0))

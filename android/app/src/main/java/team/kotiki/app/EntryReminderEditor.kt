@@ -81,6 +81,7 @@ internal fun reminderDescription(entry:Entry,preference:EntryReminderPreference)
 }
 
 @Composable internal fun EntryReminderEditor(entry:Entry,draft:EntryReminderDraft) {
+    val pickerContext=rememberPickerContext()
     val context=LocalContext.current
     Surface(shape=MaterialTheme.shapes.medium,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),color=layeredSurface(.65f)) {
         Column {
@@ -105,7 +106,7 @@ internal fun reminderDescription(entry:Entry,preference:EntryReminderPreference)
                         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),isError=draft.error!=null)
                     if(draft.enabled && entry.start.isBlank())OutlinedButton({
                         val time=LocalTime.parse(draft.dayTime)
-                        TimePickerDialog(context,{_,hour,minute->draft.dayTime=String.format(Locale.ROOT,"%02d:%02d",hour,minute)},time.hour,time.minute,true).show()
+                        TimePickerDialog(pickerContext,{_,hour,minute->draft.dayTime=String.format(Locale.ROOT,"%02d:%02d",hour,minute)},time.hour,time.minute,true).show()
                     }){Text("В ${draft.dayTime}")}
                     Text("Только для меня. У второго участника своё напоминание.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(entry.invite==InviteState.PENDING)Text("Напоминание включится после принятия приглашения.",style=MaterialTheme.typography.bodySmall)

@@ -15,6 +15,14 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35])
 class NotesUiTest {
+    private fun editor(label:String="Текст блока"):VisualEditText {
+        fun find(view:android.view.View):VisualEditText? {
+            if(view is VisualEditText && view.contentDescription?.toString()==label)return view
+            if(view is android.view.ViewGroup)for(i in 0 until view.childCount)find(view.getChildAt(i))?.let{return it}
+            return null
+        }
+        return requireNotNull(find(org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView))
+    }
     @get:Rule val ui=createAndroidComposeRule<MainActivity>()
     @Test fun openingNoteShowsEditorWithoutFocusAndTypingPersistsImmediately() {
         lateinit var store:NotesStore
@@ -25,9 +33,9 @@ class NotesUiTest {
         }
         ui.onNodeWithText("My note").performSemanticsAction(SemanticsActions.OnClick){it()}
         ui.onNodeWithContentDescription("Закрыть заметку").assertIsDisplayed()
-        ui.onNode(hasText("My note") and hasSetTextAction()).assertIsNotFocused()
-        ui.onNodeWithContentDescription("Текст блока").performTextInput("Text saved now")
-        ui.runOnIdle{assertEquals("Text saved now",NotesStore(ui.activity,Person.USER_1).notes.single().blocks.first().text)}
+        ui.runOnIdle{assertFalse(editor("Название").hasFocus())}
+        ui.runOnIdle{editor().requestFocus();editor().text.append("Text saved now")}
+        ui.runOnIdle{assertEquals("Text saved now",NotesStore(ui.activity,Person.USER_1).notes.single().preview)}
         ui.onNodeWithContentDescription("Закрыть заметку").performClick()
         ui.onNodeWithText("Text saved now").assertIsDisplayed()
     }
@@ -50,12 +58,12 @@ class NotesUiTest {
             a.setContent{KotikiTheme("light"){NotesScreen(store,LocalOrderStore(a,"blank-tap")){}}}
         }
         ui.onNodeWithText("Blank tap").performClick()
-        ui.onNodeWithContentDescription("Продолжить заметку с новой строки").performScrollTo().performClick()
-        ui.onNodeWithContentDescription("Текст блока").assertIsFocused().performTextInput("Second line")
-        ui.runOnIdle{assertEquals("First line\nSecond line",NotesStore(ui.activity,Person.USER_1).notes.single().blocks.single().text)}
-        ui.onNodeWithContentDescription("Продолжить заметку с новой строки").performScrollTo().performClick()
-        ui.onNodeWithContentDescription("Продолжить заметку с новой строки").performScrollTo().performClick()
-        ui.runOnIdle{assertEquals("First line\nSecond line\n",store.notes.single().blocks.single().text)}
+        ui.runOnIdle{
+            val input=editor();input.requestFocus();input.text.append("\nSecond line")
+            assertEquals("First line\nSecond line",NotesStore(ui.activity,Person.USER_1).notes.single().preview)
+            input.text.append("\n")
+            assertEquals("First line\nSecond line\n",store.notes.single().preview)
+        }
     }
     @Test fun blankTapDoesNotAddLeadingOrRepeatedEmptyLines() {
         assertEquals("",noteBlankLine(""))

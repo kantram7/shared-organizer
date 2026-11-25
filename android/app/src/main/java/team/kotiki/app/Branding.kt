@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -26,7 +27,17 @@ val LocalWelcomeVisible=staticCompositionLocalOf{false}
     val dark=MaterialTheme.colorScheme.background.luminance()<.5f
     val resource=if(withName) {if(dark)R.drawable.ic_brand_emblem_light else R.drawable.ic_brand_emblem}
         else {if(dark)R.drawable.ic_brand_symbol_light else R.drawable.ic_brand_symbol}
-    Image(painterResource(resource),contentDescription="Kotiki team",modifier=modifier,contentScale=ContentScale.Fit)
+    Image(painterResource(resource),contentDescription="Kotiki team",modifier=modifier,contentScale=ContentScale.Fit,
+        colorFilter=if(winterDesignEnabled())ColorFilter.tint(MaterialTheme.colorScheme.primary)else null)
+}
+@Composable fun WinterBrandMark(modifier:Modifier=Modifier,withName:Boolean=false) {
+    Box(modifier) {
+        BrandMark(Modifier.fillMaxSize(),withName)
+        if(winterDesignEnabled()) {
+            androidx.compose.material3.Icon(painterResource(R.drawable.ic_snowflake_fern),null,Modifier.size(18.dp).align(Alignment.TopEnd),tint=MaterialTheme.colorScheme.primary.copy(alpha=.5f))
+            androidx.compose.material3.Icon(painterResource(R.drawable.ic_snowflake_fern),null,Modifier.size(11.dp).align(Alignment.CenterStart),tint=MaterialTheme.colorScheme.primary.copy(alpha=.3f))
+        }
+    }
 }
 /** Fade the emblem in, then dissolve the cover over the already composed app. */
 @Composable fun BrandWelcome(show:Boolean,onContinue:()->Unit,content:@Composable ()->Unit) {
@@ -54,8 +65,10 @@ val LocalWelcomeVisible=staticCompositionLocalOf{false}
                 .clickable(onClickLabel="Открыть органайзер",onClick={exiting=true}),
             color=MaterialTheme.colorScheme.background
         ) {
+            WinterAuthSurface {
             Box(Modifier.fillMaxSize().safeDrawingPadding(),contentAlignment=Alignment.Center) {
-                BrandMark(Modifier.width(220.dp).aspectRatio(240f/285f).graphicsLayer{alpha=logoAlpha.value},withName=true)
+                WinterBrandMark(Modifier.width(220.dp).aspectRatio(240f/285f).graphicsLayer{alpha=logoAlpha.value},withName=true)
+            }
             }
         }
     }
